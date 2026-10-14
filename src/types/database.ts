@@ -19,6 +19,22 @@ export interface DriverDocuments {
   skck: 'pending' | 'verified' | 'rejected';
 }
 
+export interface DriverDocumentItem {
+  id: string;
+  driver_id: string;
+  document_type: 'ktp' | 'sim' | 'stnk' | 'skck' | 'vehicle_photo';
+  file_path: string;
+  file_name?: string;
+  file_size_bytes?: number;
+  mime_type?: string;
+  status: 'pending' | 'verified' | 'rejected';
+  rejection_reason?: string | null;
+  verified_by?: string | null;
+  verified_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Driver {
   id: string;
   full_name: string;
