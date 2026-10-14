@@ -34,7 +34,7 @@ export const UsersPage: React.FC<UsersPageProps> = ({
   const filteredUsers = users.filter((user) => {
     const matchesSearch = 
       user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.phone.includes(searchTerm) ||
+      (user.phone && user.phone.includes(searchTerm)) ||
       (user.email && user.email.toLowerCase().includes(searchTerm.toLowerCase()));
     
     const matchesStatus = statusFilter === 'all' || user.status === statusFilter;

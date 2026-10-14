@@ -13,6 +13,12 @@ export const isSupabaseConfigured = Boolean(
   supabaseAnonKey.length > 20
 );
 
+// Demo Mode is ONLY permitted in development or when explicitly enabled via VITE_ENABLE_DEMO=true.
+// In production builds, Demo Mode is STRICTLY DISABLED by default to prevent any bypass.
+export const isDemoModeAllowed = Boolean(
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === 'true'
+);
+
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
@@ -38,7 +44,14 @@ export async function checkSupabaseHealth(): Promise<ConnectionStatus> {
 
   const start = performance.now();
   try {
-    const { error } = await supabase.from('operational_zones').select('id').limit(1);
+    // Aligned to production table: service_zones (fallback to user_profiles)
+    let { error } = await supabase.from('service_zones').select('id').limit(1);
+    if (error && error.code === '42P01') {
+      // Table doesn't exist yet, try user_profiles
+      const retry = await supabase.from('user_profiles').select('id').limit(1);
+      error = retry.error;
+    }
+
     const latencyMs = Math.round(performance.now() - start);
 
     if (error) {

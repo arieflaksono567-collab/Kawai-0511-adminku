@@ -9,14 +9,15 @@ import {
   MapPin, 
   ArrowRight,
   UserCheck,
-  Database
+  Database,
+  ShieldAlert
 } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { AdminRole } from '../../types/database';
 
 export const LoginPage: React.FC = () => {
-  const { loginWithPassword, loginAsDemoAdmin } = useAuth();
+  const { loginWithPassword, loginAsDemoAdmin, isDemoAllowed } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -32,6 +33,13 @@ export const LoginPage: React.FC = () => {
       setErrorMsg(res.error || 'Autentikasi gagal.');
     }
     setIsSubmitting(false);
+  };
+
+  const handleDemoLogin = (role: AdminRole) => {
+    const res = loginAsDemoAdmin(role);
+    if (!res.success && res.error) {
+      setErrorMsg(res.error);
+    }
   };
 
   return (
@@ -66,8 +74,8 @@ export const LoginPage: React.FC = () => {
             </p>
             <p className="text-[11px] text-slate-400">
               {isSupabaseConfigured
-                ? 'Login menggunakan akun terdaftar di auth.users & admin_users.'
-                : 'Belum terhubung ke Supabase live. Gunakan tombol Mode Evaluasi di bawah untuk menguji seluruh fitur.'}
+                ? 'Login menggunakan akun terverifikasi di auth.users & user_profiles.'
+                : 'Koneksi database langsung belum aktif di environment. ' + (isDemoAllowed ? 'Gunakan Mode Evaluasi di bawah untuk peninjauan antarmuka.' : 'Hubungi DevOps.')}
             </p>
           </div>
         </div>
@@ -136,51 +144,63 @@ export const LoginPage: React.FC = () => {
             </button>
           </form>
 
-          {/* Evaluation / Quick Demo Section */}
-          <div className="pt-4 border-t border-slate-800 space-y-3">
-            <div className="flex items-center justify-between text-xs text-slate-400">
-              <span className="font-semibold text-slate-300">Mode Evaluasi & Audit Akses:</span>
-              <span className="text-[10px] text-amber-400">Pilih Role</span>
+          {/* Evaluation / Quick Demo Section - ONLY SHOWN IF DEMO MODE IS ALLOWED */}
+          {isDemoAllowed ? (
+            <div className="pt-4 border-t border-slate-800 space-y-3">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span className="font-semibold text-slate-300">Mode Evaluasi &amp; Audit Akses:</span>
+                <span className="text-[10px] text-amber-400">Pilih Role</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => handleDemoLogin('superadmin')}
+                  className="p-2.5 bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 text-left transition-colors"
+                >
+                  <div className="font-bold text-emerald-400 text-[11px]">Super Admin</div>
+                  <div className="text-[10px] text-slate-400">Hak akses penuh 100%</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDemoLogin('dispatcher')}
+                  className="p-2.5 bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 text-left transition-colors"
+                >
+                  <div className="font-bold text-blue-400 text-[11px]">Dispatcher</div>
+                  <div className="text-[10px] text-slate-400">Armada &amp; pesanan live</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDemoLogin('finance')}
+                  className="p-2.5 bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 text-left transition-colors"
+                >
+                  <div className="font-bold text-amber-400 text-[11px]">Finansial</div>
+                  <div className="text-[10px] text-slate-400">Omset &amp; komisi platform</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDemoLogin('support')}
+                  className="p-2.5 bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 text-left transition-colors"
+                >
+                  <div className="font-bold text-purple-400 text-[11px]">Support Care</div>
+                  <div className="text-[10px] text-slate-400">Tiket &amp; verifikasi</div>
+                </button>
+              </div>
             </div>
-
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => loginAsDemoAdmin('superadmin')}
-                className="p-2.5 bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 text-left transition-colors"
-              >
-                <div className="font-bold text-emerald-400 text-[11px]">Super Admin</div>
-                <div className="text-[10px] text-slate-400">Hak akses penuh 100%</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => loginAsDemoAdmin('dispatcher')}
-                className="p-2.5 bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 text-left transition-colors"
-              >
-                <div className="font-bold text-blue-400 text-[11px]">Dispatcher</div>
-                <div className="text-[10px] text-slate-400">Armada & pesanan live</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => loginAsDemoAdmin('finance')}
-                className="p-2.5 bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 text-left transition-colors"
-              >
-                <div className="font-bold text-amber-400 text-[11px]">Finansial</div>
-                <div className="text-[10px] text-slate-400">Omset & komisi platform</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => loginAsDemoAdmin('support')}
-                className="p-2.5 bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 text-left transition-colors"
-              >
-                <div className="font-bold text-purple-400 text-[11px]">Support Care</div>
-                <div className="text-[10px] text-slate-400">Tiket & verifikasi</div>
-              </button>
+          ) : (
+            <div className="pt-4 border-t border-slate-800 text-center text-xs space-y-1">
+              <p className="flex items-center justify-center gap-1.5 text-slate-400 font-semibold">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                Mode Keamanan Produksi Aktif
+              </p>
+              <p className="text-[11px] text-slate-500">
+                Akses demo dinonaktifkan. Seluruh sesi diautentikasi langsung ke Supabase Auth.
+              </p>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Security Notice */}
@@ -189,7 +209,7 @@ export const LoginPage: React.FC = () => {
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
             Dilindungi oleh Row Level Security (RLS) PostgreSQL Supabase
           </p>
-          <p>Akses tanpa hak administrator otomatis diblokir (403 Forbidden).</p>
+          <p>Akses tanpa otorisasi administrator operasional otomatis diblokir (403 Forbidden).</p>
         </div>
       </div>
     </div>

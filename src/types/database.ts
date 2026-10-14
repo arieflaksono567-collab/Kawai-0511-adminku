@@ -1,15 +1,45 @@
-export type AdminRole = 'superadmin' | 'dispatcher' | 'finance' | 'support';
+export type AdminRole = 'superadmin' | 'admin' | 'dispatcher' | 'finance' | 'support' | 'customer';
 export type DriverStatus = 'active' | 'inactive' | 'suspended' | 'pending_verification';
 export type ServiceType = 'ride_motor' | 'ride_car' | 'delivery' | 'food';
 export type OrderStatus = 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
 
-export interface AdminUser {
-  id: string;
-  email: string;
+// 1. user_profiles table (Production Source of Truth for Users & Admins)
+export interface UserProfile {
+  id: string; // references auth.users(id)
   full_name: string;
+  phone?: string;
+  email?: string | null;
   role: AdminRole;
-  is_active: boolean;
+  is_admin?: boolean;
+  is_active?: boolean;
+  status: 'active' | 'suspended';
+  total_orders?: number;
+  wallet_balance: number;
   created_at: string;
+  updated_at?: string;
+  last_order_at?: string;
+}
+
+// 2. driver_profiles table (Production Source of Truth for Drivers / Mitra)
+export interface DriverProfile {
+  id: string;
+  user_id?: string | null;
+  full_name: string;
+  phone: string;
+  email: string | null;
+  vehicle_type: 'motor' | 'mobil';
+  plate_number: string;
+  vehicle_brand: string | null;
+  vehicle_year: number | null;
+  status: DriverStatus;
+  rating: number;
+  total_trips: number;
+  wallet_balance: number;
+  current_lat?: number | null;
+  current_lng?: number | null;
+  documents: DriverDocuments;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface DriverDocuments {
@@ -35,28 +65,27 @@ export interface DriverDocumentItem {
   updated_at: string;
 }
 
-export interface Driver {
+// 3. service_zones table (Production Source of Truth for Regional Pricing 0511)
+export interface ServiceZone {
   id: string;
-  full_name: string;
-  phone: string;
-  email: string | null;
-  vehicle_type: 'motor' | 'mobil';
-  plate_number: string;
-  vehicle_brand: string | null;
-  vehicle_year: number | null;
-  status: DriverStatus;
-  rating: number;
-  total_trips: number;
-  wallet_balance: number;
-  current_lat?: number | null;
-  current_lng?: number | null;
-  documents: DriverDocuments;
-  created_at: string;
+  name: string;
+  city: string;
+  area_code: string;
+  base_fare_motor: number;
+  per_km_motor: number;
+  base_fare_car: number;
+  per_km_car: number;
+  surge_multiplier: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
+// 4. orders table
 export interface Order {
   id: string;
   order_number: string;
+  customer_id?: string | null;
   customer_name: string;
   customer_phone: string;
   driver_id: string | null;
@@ -73,21 +102,66 @@ export interface Order {
   payment_status: 'paid' | 'pending' | 'refunded';
   cancellation_reason?: string | null;
   created_at: string;
+  updated_at?: string;
 }
 
-export interface OperationalZone {
+// 5. order_status_history table
+export interface OrderStatusHistory {
   id: string;
-  name: string;
-  city: string;
-  area_code: string;
-  base_fare_motor: number;
-  per_km_motor: number;
-  base_fare_car: number;
-  per_km_car: number;
+  order_id: string;
+  status: OrderStatus;
+  notes?: string;
+  actor_id?: string;
+  created_at: string;
+}
+
+// 6. tariff_rules table
+export interface TariffRule {
+  id: string;
+  zone_id: string;
+  service_type_id: string;
+  base_fare: number;
+  rate_per_km: number;
+  minimum_fare: number;
   surge_multiplier: number;
   is_active: boolean;
 }
 
+// 7. support_tickets table
+export interface SupportTicket {
+  id: string;
+  user_id?: string;
+  order_id?: string;
+  subject: string;
+  message: string;
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  created_at: string;
+}
+
+// 8. payment_transactions table
+export interface PaymentTransaction {
+  id: string;
+  order_id?: string;
+  user_id?: string;
+  driver_id?: string;
+  amount: number;
+  payment_method: string;
+  payment_status: string;
+  transaction_type: string;
+  created_at: string;
+}
+
+// 9. admin_settings table
+export interface AdminSetting {
+  id: string;
+  key: string;
+  value: any;
+  description?: string;
+  updated_at: string;
+}
+
+// 10. audit_logs table
 export interface AuditLog {
   id: string;
   admin_id?: string;
@@ -100,6 +174,12 @@ export interface AuditLog {
   created_at: string;
 }
 
+// Backwards-Compatible Type Aliases
+export type AdminUser = UserProfile;
+export type Driver = DriverProfile;
+export type OperationalZone = ServiceZone;
+export type AppUser = UserProfile;
+
 export interface DashboardMetrics {
   activeDriversCount: number;
   totalDriversCount: number;
@@ -109,18 +189,6 @@ export interface DashboardMetrics {
   platformNetRevenueToday: number;
   pendingVerifications: number;
   averageRating: number;
-}
-
-export interface AppUser {
-  id: string;
-  full_name: string;
-  phone: string;
-  email?: string | null;
-  status: 'active' | 'suspended';
-  total_orders: number;
-  wallet_balance: number;
-  created_at: string;
-  last_order_at?: string;
 }
 
 export interface AnalyticsSummary {
@@ -146,4 +214,3 @@ export type AdminPageView =
   | 'deployment'
   | 'forbidden'
   | 'not_found';
-

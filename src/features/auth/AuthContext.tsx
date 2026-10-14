@@ -1,13 +1,14 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { supabase, isSupabaseConfigured, isDemoModeAllowed } from '../../lib/supabase';
 import { AdminUser, AdminRole } from '../../types/database';
 
 interface AuthContextType {
   user: AdminUser | null;
   isLoading: boolean;
   isDemoSession: boolean;
+  isDemoAllowed: boolean;
   loginWithPassword: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  loginAsDemoAdmin: (role: AdminRole) => void;
+  loginAsDemoAdmin: (role: AdminRole) => { success: boolean; error?: string };
   logout: () => Promise<void>;
   hasRole: (requiredRoles: AdminRole[]) => boolean;
 }
@@ -20,50 +21,73 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isDemoSession, setIsDemoSession] = useState(false);
 
   useEffect(() => {
-    // Check existing session
     const initAuth = async () => {
       setIsLoading(true);
 
-      // Check saved demo session in sessionStorage
-      const savedDemo = sessionStorage.getItem('kawai_demo_admin_user');
-      if (savedDemo) {
-        try {
-          const parsed = JSON.parse(savedDemo);
-          setUser(parsed);
-          setIsDemoSession(true);
-          setIsLoading(false);
-          return;
-        } catch (e) {
-          sessionStorage.removeItem('kawai_demo_admin_user');
+      // Restore demo session ONLY if demo mode is explicitly allowed (e.g. DEV or VITE_ENABLE_DEMO=true)
+      if (isDemoModeAllowed) {
+        const savedDemo = sessionStorage.getItem('kawai_demo_admin_user');
+        if (savedDemo) {
+          try {
+            const parsed = JSON.parse(savedDemo);
+            setUser(parsed);
+            setIsDemoSession(true);
+            setIsLoading(false);
+            return;
+          } catch (e) {
+            sessionStorage.removeItem('kawai_demo_admin_user');
+          }
         }
+      } else {
+        // Enforce cleanup if previously saved in development
+        sessionStorage.removeItem('kawai_demo_admin_user');
       }
 
+      // Check real Supabase Auth session
       if (isSupabaseConfigured && supabase) {
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user) {
-            // Verify role in public.admin_users
-            const { data: adminRecord, error } = await supabase
-              .from('admin_users')
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+          if (session?.user && !sessionError) {
+            // Check authorization against production table: user_profiles
+            const { data: profileRecord, error: profileError } = await supabase
+              .from('user_profiles')
               .select('*')
               .eq('id', session.user.id)
-              .eq('is_active', true)
               .single();
 
-            if (adminRecord && !error) {
+            const isAuthorizedAdmin = Boolean(
+              profileRecord && 
+              !profileError && 
+              profileRecord.status !== 'suspended' &&
+              profileRecord.is_active !== false &&
+              (
+                profileRecord.is_admin === true ||
+                ['superadmin', 'admin', 'dispatcher', 'finance', 'support'].includes(profileRecord.role)
+              )
+            );
+
+            if (isAuthorizedAdmin && profileRecord) {
+              const assignedRole = (profileRecord.role === 'admin' ? 'superadmin' : profileRecord.role) as AdminRole;
               setUser({
                 id: session.user.id,
-                email: session.user.email || '',
-                full_name: adminRecord.full_name || 'Admin KAWAI',
-                role: adminRecord.role as AdminRole,
-                is_active: adminRecord.is_active,
-                created_at: adminRecord.created_at,
+                email: session.user.email || profileRecord.email || '',
+                full_name: profileRecord.full_name || 'Admin KAWAI',
+                role: assignedRole,
+                is_admin: true,
+                is_active: profileRecord.is_active ?? true,
+                status: profileRecord.status || 'active',
+                wallet_balance: profileRecord.wallet_balance || 0,
+                created_at: profileRecord.created_at,
               });
               setIsDemoSession(false);
+            } else {
+              // Not an authorized admin: invalidate session
+              await supabase.auth.signOut();
+              setUser(null);
             }
           }
         } catch (err) {
-          console.error('Failed to restore Supabase session', err);
+          console.error('Failed to verify Supabase admin session:', err);
         }
       }
 
@@ -85,70 +109,106 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithPassword = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     if (!isSupabaseConfigured || !supabase) {
-      return { 
-        success: false, 
-        error: 'Database Supabase belum terhubung di environment variables. Silakan gunakan Mode Evaluasi / Audit.' 
+      if (isDemoModeAllowed) {
+        return { 
+          success: false, 
+          error: 'Koneksi database Supabase belum terkonfigurasi. Silakan gunakan Mode Evaluasi / Audit di lingkungan pengujian.' 
+        };
+      }
+      return {
+        success: false,
+        error: 'Sistem belum terhubung ke Supabase produksi. Hubungi Administrator Sistem.'
       };
     }
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error || !data.user) {
-        return { success: false, error: error?.message || 'Login gagal' };
+        return { success: false, error: error?.message || 'Login gagal. Periksa kembali email dan kata sandi.' };
       }
 
-      // Check admin status in admin_users
-      const { data: adminRecord, error: roleError } = await supabase
-        .from('admin_users')
+      // Check admin status against production table: user_profiles
+      const { data: profileRecord, error: roleError } = await supabase
+        .from('user_profiles')
         .select('*')
         .eq('id', data.user.id)
         .single();
 
-      if (roleError || !adminRecord || !adminRecord.is_active) {
+      const isAuthorizedAdmin = Boolean(
+        profileRecord && 
+        !roleError && 
+        profileRecord.status !== 'suspended' &&
+        profileRecord.is_active !== false &&
+        (
+          profileRecord.is_admin === true ||
+          ['superadmin', 'admin', 'dispatcher', 'finance', 'support'].includes(profileRecord.role)
+        )
+      );
+
+      if (!isAuthorizedAdmin || !profileRecord) {
         await supabase.auth.signOut();
         return { 
           success: false, 
-          error: 'Akun Anda tidak terdaftar sebagai administrator aktif KAWAI 0511 (Akses Ditolak).' 
+          error: 'Akun Anda terdaftar tetapi tidak memiliki otorisasi administrator operasional KAWAI 0511 (HTTP 403 Akses Ditolak).' 
         };
       }
 
+      const assignedRole = (profileRecord.role === 'admin' ? 'superadmin' : profileRecord.role) as AdminRole;
       const adminUser: AdminUser = {
         id: data.user.id,
-        email: data.user.email || '',
-        full_name: adminRecord.full_name,
-        role: adminRecord.role,
-        is_active: adminRecord.is_active,
-        created_at: adminRecord.created_at,
+        email: data.user.email || profileRecord.email || '',
+        full_name: profileRecord.full_name,
+        role: assignedRole,
+        is_admin: true,
+        is_active: profileRecord.is_active ?? true,
+        status: profileRecord.status || 'active',
+        wallet_balance: profileRecord.wallet_balance || 0,
+        created_at: profileRecord.created_at,
       };
 
       setUser(adminUser);
       setIsDemoSession(false);
+      sessionStorage.removeItem('kawai_demo_admin_user');
       return { success: true };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Network error saat menghubungi Supabase Auth' };
+      return { success: false, error: err.message || 'Network error saat menghubungi layanan Supabase Auth.' };
     }
   };
 
-  const loginAsDemoAdmin = (role: AdminRole) => {
+  const loginAsDemoAdmin = (role: AdminRole): { success: boolean; error?: string } => {
+    // Strictly prevent demo bypass in production
+    if (!isDemoModeAllowed) {
+      return {
+        success: false,
+        error: 'Mode evaluasi / demo dinonaktifkan pada lingkungan produksi demi keamanan data.'
+      };
+    }
+
     const roleNames: Record<AdminRole, string> = {
       superadmin: 'Super Admin KAWAI',
+      admin: 'Administrator Operasional',
       dispatcher: 'Operator Dispatcher',
       finance: 'Admin Finansial & Omset',
       support: 'Customer Care Support',
+      customer: 'Pengguna Standar',
     };
 
     const demoUser: AdminUser = {
       id: `demo-${role}-${Date.now()}`,
       email: `${role}.demo@kawai0511.id`,
-      full_name: roleNames[role],
+      full_name: roleNames[role] || 'Admin KAWAI',
       role,
+      is_admin: true,
       is_active: true,
+      status: 'active',
+      wallet_balance: 0,
       created_at: new Date().toISOString(),
     };
 
     setUser(demoUser);
     setIsDemoSession(true);
     sessionStorage.setItem('kawai_demo_admin_user', JSON.stringify(demoUser));
+    return { success: true };
   };
 
   const logout = async () => {
@@ -164,7 +224,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const hasRole = (requiredRoles: AdminRole[]): boolean => {
     if (!user) return false;
-    if (user.role === 'superadmin') return true; // Superadmin has all permissions
+    if (user.role === 'superadmin' || user.role === 'admin') return true; // Superadmin/admin has full permission
     return requiredRoles.includes(user.role);
   };
 
@@ -173,6 +233,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       user,
       isLoading,
       isDemoSession,
+      isDemoAllowed: isDemoModeAllowed,
       loginWithPassword,
       loginAsDemoAdmin,
       logout,

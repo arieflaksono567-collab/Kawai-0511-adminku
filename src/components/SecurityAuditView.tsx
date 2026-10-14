@@ -51,7 +51,7 @@ export const SecurityAuditView: React.FC<SecurityAuditViewProps> = ({ auditLogs 
             </span>
           </div>
           <p className="text-slate-400 text-[11px]">
-            Seluruh tabel (<code className="text-emerald-300">drivers</code>, <code className="text-emerald-300">orders</code>, <code className="text-emerald-300">admin_users</code>) diisolasi dengan Row Level Security.
+            Seluruh tabel (<code className="text-emerald-300">user_profiles</code>, <code className="text-emerald-300">driver_profiles</code>, <code className="text-emerald-300">orders</code>, <code className="text-emerald-300">service_zones</code>, <code className="text-emerald-300">audit_logs</code>) diisolasi dengan Row Level Security.
           </p>
           <div className="pt-2 border-t border-slate-800/80 text-[10px] text-slate-500 flex items-center gap-1">
             <CheckCircle2 className="w-3 h-3 text-emerald-400" />

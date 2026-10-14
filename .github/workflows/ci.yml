@@ -1,0 +1,41 @@
+name: KAWAI 0511 Admin Panel CI
+
+on:
+  push:
+    branches: [ main, 'fix/*', 'feature/*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    name: Build, Lint & Security Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Automated Unit & Security Tests
+        run: npm run test
+
+      - name: TypeScript Linting & Typecheck
+        run: npm run lint
+
+      - name: Production Vite Build
+        run: npm run build
+
+      - name: Verify Cloudflare Pages Output
+        run: |
+          test -f dist/index.html || exit 1
+          test -f dist/_redirects || exit 1
+          test -f dist/_headers || exit 1
+          echo "Production distribution verified for Cloudflare Pages edge delivery."

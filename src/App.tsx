@@ -36,15 +36,15 @@ function AppContent() {
   const [currentTab, setCurrentTab] = useState<AdminPageView>('dashboard');
   const [isDbModalOpen, setIsDbModalOpen] = useState(false);
 
-  // Core state loaded from api layer
   const [users, setUsers] = useState<AppUser[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [zones, setZones] = useState<OperationalZone[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<Order | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
 
-  // Initial data fetch
+  // Initial data fetch with explicit error handling
   useEffect(() => {
     const loadInitialData = async () => {
       const [uRes, dRes, oRes, zRes, aRes] = await Promise.all([
@@ -54,6 +54,11 @@ function AppContent() {
         api.getZones(),
         api.getAuditLogs(),
       ]);
+
+      const foundError = uRes.error || dRes.error || oRes.error || zRes.error || aRes.error;
+      if (foundError) {
+        setApiError(foundError);
+      }
 
       setUsers(uRes.data);
       setDrivers(dRes.data);
@@ -177,6 +182,37 @@ function AppContent() {
         activeOrdersCount={activeOrdersCount}
         activeDriversCount={activeDriversCount}
       />
+
+      {/* Prominent Demo Mode Notice - Ensures simulation data is never confused with production */}
+      {isDemoSession && (
+        <div className="bg-amber-950 border-b border-amber-500/40 text-amber-200 px-6 py-2 text-xs flex items-center justify-between z-20 shadow-inner">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+            <span>
+              <strong>PERINGATAN: MODE EVALUASI / SIMULASI AKTIF (Peran: {user.role.toUpperCase()}):</strong> Sesi ini tidak terhubung ke database produksi Supabase. Seluruh data yang tampil adalah data simulasi operasional.
+            </span>
+          </div>
+          <span className="text-[10px] font-mono bg-amber-900/80 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">
+            SIMULATION ONLY
+          </span>
+        </div>
+      )}
+
+      {/* Explicit Database Error Banner */}
+      {apiError && (
+        <div className="bg-rose-950 border-b border-rose-500/40 text-rose-200 px-6 py-2 text-xs flex items-center justify-between z-20">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-rose-400">Database Supabase Error:</span>
+            <span>{apiError}</span>
+          </div>
+          <button 
+            onClick={() => setApiError(null)} 
+            className="text-rose-400 hover:text-white font-bold px-2 py-0.5 rounded bg-rose-900/40"
+          >
+            Tutup
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 flex overflow-hidden">
         {/* Navigation Sidebar */}
