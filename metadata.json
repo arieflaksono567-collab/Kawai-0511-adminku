@@ -1,0 +1,6 @@
+{
+  "name": "KAWAI 0511 Admin Panel",
+  "description": "Admin Panel KAWAI 0511 — Operasional, Driver, Pesanan, dan Analytics",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
