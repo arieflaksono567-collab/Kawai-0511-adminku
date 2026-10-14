@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { AuthProvider, useAuth } from './features/auth/AuthContext';
+import { LoginPage } from './features/auth/LoginPage';
 import { Header } from './components/Header';
-import { Sidebar, TabType } from './components/Sidebar';
+import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
 import { DriversView } from './components/DriversView';
 import { OrdersView } from './components/OrdersView';
@@ -8,161 +10,159 @@ import { ZonesView } from './components/ZonesView';
 import { SecurityAuditView } from './components/SecurityAuditView';
 import { DeploymentStatusView } from './components/DeploymentStatusView';
 import { SupabaseCloudflareModal } from './components/SupabaseCloudflareModal';
-import { 
-  INITIAL_MOCK_DRIVERS, 
-  INITIAL_MOCK_ORDERS, 
-  INITIAL_MOCK_ZONES, 
-  INITIAL_MOCK_AUDIT, 
-  supabase, 
-  isSupabaseConfigured 
-} from './lib/supabase';
-import { Driver, DriverStatus, Order, OrderStatus, OperationalZone, AuditLog } from './types/database';
+import { UsersPage } from './features/users/UsersPage';
+import { OrderDetailModal } from './features/orders/OrderDetailModal';
+import { AnalyticsPage } from './features/analytics/AnalyticsPage';
+import { SettingsPage } from './features/settings/SettingsPage';
+import { ProfilePage } from './features/profile/ProfilePage';
+import { Forbidden403 } from './components/Forbidden403';
+import { NotFound404 } from './components/NotFound404';
 
-export default function App() {
-  const [currentTab, setCurrentTab] = useState<TabType>('dashboard');
+import { api } from './lib/api';
+import { isSupabaseConfigured } from './lib/supabase';
+import { 
+  Driver, 
+  DriverStatus, 
+  Order, 
+  OrderStatus, 
+  OperationalZone, 
+  AuditLog, 
+  AppUser,
+  AdminPageView 
+} from './types/database';
+
+function AppContent() {
+  const { user, isLoading, isDemoSession, hasRole } = useAuth();
+  const [currentTab, setCurrentTab] = useState<AdminPageView>('dashboard');
   const [isDbModalOpen, setIsDbModalOpen] = useState(false);
 
-  // Core application states
-  const [drivers, setDrivers] = useState<Driver[]>(INITIAL_MOCK_DRIVERS);
-  const [orders, setOrders] = useState<Order[]>(INITIAL_MOCK_ORDERS);
-  const [zones, setZones] = useState<OperationalZone[]>(INITIAL_MOCK_ZONES);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_MOCK_AUDIT);
+  // Core state loaded from api layer
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [zones, setZones] = useState<OperationalZone[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<Order | null>(null);
 
-  // Helper to record audit log
-  const recordAudit = (action: string, entity_type: string, entity_id: string, details: Record<string, any>) => {
-    const newLog: AuditLog = {
-      id: `audit-${Date.now()}`,
-      admin_email: 'admin.kawai0511@gmail.com',
-      action,
-      entity_type,
-      entity_id,
-      details,
-      ip_address: '180.252.88.14',
-      created_at: new Date().toISOString(),
+  // Initial data fetch
+  useEffect(() => {
+    const loadInitialData = async () => {
+      const [uRes, dRes, oRes, zRes, aRes] = await Promise.all([
+        api.getUsers(),
+        api.getDrivers(),
+        api.getOrders(),
+        api.getZones(),
+        api.getAuditLogs(),
+      ]);
+
+      setUsers(uRes.data);
+      setDrivers(dRes.data);
+      setOrders(oRes.data);
+      setZones(zRes.data);
+      setAuditLogs(aRes.data);
     };
-    setAuditLogs(prev => [newLog, ...prev]);
 
-    // If Supabase is connected, seamlessly sync audit to database
-    if (isSupabaseConfigured && supabase) {
-      supabase.from('audit_logs').insert([{
-        admin_email: newLog.admin_email,
-        action: newLog.action,
-        entity_type: newLog.entity_type,
-        entity_id: newLog.entity_id,
-        details: newLog.details,
-      }]).then(() => {});
+    if (user) {
+      loadInitialData();
     }
+  }, [user]);
+
+  // Audit recording helper
+  const recordAudit = async (action: string, entity_type: string, entity_id: string, details: Record<string, any>) => {
+    const adminEmail = user?.email || 'admin@kawai0511.id';
+    await api.logAudit(action, entity_type, entity_id, details, adminEmail);
+    const refreshed = await api.getAuditLogs();
+    setAuditLogs(refreshed.data);
   };
 
-  // Driver operations
-  const handleUpdateDriverStatus = (id: string, newStatus: DriverStatus, logAction: string) => {
-    setDrivers(prev => prev.map(d => d.id === id ? { ...d, status: newStatus } : d));
-    const targetDriver = drivers.find(d => d.id === id);
+  // User actions
+  const handleUpdateUserStatus = async (userId: string, newStatus: 'active' | 'suspended', reason: string) => {
+    const res = await api.updateUserStatus(userId, newStatus);
+    setUsers(prev => prev.map(u => u.id === userId ? res.data : u));
+    recordAudit(`UPDATE_USER_STATUS_${newStatus.toUpperCase()}`, 'user', userId, {
+      user_name: res.data.full_name,
+      reason,
+    });
+  };
+
+  // Driver actions
+  const handleUpdateDriverStatus = async (id: string, newStatus: DriverStatus, logAction: string) => {
+    const res = await api.updateDriverStatus(id, newStatus);
+    setDrivers(prev => prev.map(d => d.id === id ? res.data : d));
     recordAudit(
       newStatus === 'suspended' ? 'SUSPEND_DRIVER' : 'ACTIVATE_DRIVER',
       'driver',
       id,
-      { driver_name: targetDriver?.full_name, previous_status: targetDriver?.status, new_status: newStatus, note: logAction }
+      { driver_name: res.data.full_name, note: logAction }
     );
   };
 
-  const handleApproveDocuments = (id: string) => {
-    setDrivers(prev => prev.map(d => {
-      if (d.id === id) {
-        return {
-          ...d,
-          status: 'active' as DriverStatus,
-          documents: { ktp: 'verified', sim: 'verified', stnk: 'verified', skck: 'verified' },
-        };
-      }
-      return d;
-    }));
-    const targetDriver = drivers.find(d => d.id === id);
-    recordAudit(
-      'APPROVE_DRIVER_DOCUMENTS',
-      'driver',
-      id,
-      { driver_name: targetDriver?.full_name, status_set: 'active' }
-    );
-  };
-
-  const handleAddDriver = (newDriverData: Partial<Driver>) => {
-    const createdDriver: Driver = {
-      id: `drv-0511-${Date.now().toString().slice(-4)}`,
-      full_name: newDriverData.full_name || 'Driver Baru',
-      phone: newDriverData.phone || '0812-0000-0000',
-      email: null,
-      vehicle_type: newDriverData.vehicle_type || 'motor',
-      plate_number: newDriverData.plate_number || 'DA 0000 XX',
-      vehicle_brand: newDriverData.vehicle_brand || 'Honda Vario',
-      vehicle_year: newDriverData.vehicle_year || 2023,
-      status: 'pending_verification',
-      rating: 5.0,
-      total_trips: 0,
-      wallet_balance: 0,
-      documents: { ktp: 'pending', sim: 'pending', stnk: 'pending', skck: 'pending' },
-      created_at: new Date().toISOString(),
-    };
-
-    setDrivers(prev => [createdDriver, ...prev]);
-    recordAudit('REGISTER_NEW_DRIVER', 'driver', createdDriver.id, {
-      full_name: createdDriver.full_name,
-      plate: createdDriver.plate_number,
-      vehicle: createdDriver.vehicle_type,
+  const handleApproveDocuments = async (id: string) => {
+    const res = await api.approveDriverDocuments(id);
+    setDrivers(prev => prev.map(d => d.id === id ? res.data : d));
+    recordAudit('APPROVE_DRIVER_DOCUMENTS', 'driver', id, {
+      driver_name: res.data.full_name,
+      status_set: 'active',
     });
   };
 
-  // Order operations
-  const handleAssignDriver = (orderId: string, driverId: string) => {
-    const driver = drivers.find(d => d.id === driverId);
-    if (!driver) return;
+  const handleAddDriver = async (newDriverData: Partial<Driver>) => {
+    const res = await api.createDriver(newDriverData);
+    setDrivers(prev => [res.data, ...prev]);
+    recordAudit('REGISTER_NEW_DRIVER', 'driver', res.data.id, {
+      full_name: res.data.full_name,
+      plate: res.data.plate_number,
+    });
+  };
 
-    setOrders(prev => prev.map(o => {
-      if (o.id === orderId) {
-        return {
-          ...o,
-          driver_id: driverId,
-          driver_name: driver.full_name,
-          status: 'assigned' as OrderStatus,
-        };
-      }
-      return o;
-    }));
-
+  // Order actions
+  const handleAssignDriver = async (orderId: string, driverId: string) => {
+    const res = await api.assignDriver(orderId, driverId);
+    setOrders(prev => prev.map(o => o.id === orderId ? res.data : o));
     recordAudit('MANUAL_ASSIGN_DRIVER', 'order', orderId, {
-      driver_name: driver.full_name,
-      driver_plate: driver.plate_number,
+      driver_id: driverId,
+      driver_name: res.data.driver_name,
     });
   };
 
-  const handleUpdateOrderStatus = (orderId: string, status: OrderStatus, reason?: string) => {
-    setOrders(prev => prev.map(o => {
-      if (o.id === orderId) {
-        return {
-          ...o,
-          status,
-          cancellation_reason: reason || o.cancellation_reason,
-        };
-      }
-      return o;
-    }));
-
+  const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus, reason?: string) => {
+    const res = await api.updateOrderStatus(orderId, status, reason);
+    setOrders(prev => prev.map(o => o.id === orderId ? res.data : o));
     recordAudit(`SET_ORDER_STATUS_${status.toUpperCase()}`, 'order', orderId, {
       status,
-      reason: reason || 'Diperbarui melalui panel operasional',
+      reason: reason || 'Diperbarui via pusat komando admin',
     });
   };
 
-  // Zone operations
-  const handleUpdateZone = (updatedZone: OperationalZone) => {
-    setZones(prev => prev.map(z => z.id === updatedZone.id ? updatedZone : z));
+  // Zone actions
+  const handleUpdateZone = async (updatedZone: OperationalZone) => {
+    const res = await api.updateZone(updatedZone);
+    setZones(prev => prev.map(z => z.id === updatedZone.id ? res.data : z));
     recordAudit('UPDATE_OPERATIONAL_ZONE_TARIFF', 'operational_zone', updatedZone.id, {
       zone_name: updatedZone.name,
       base_fare_motor: updatedZone.base_fare_motor,
-      per_km_motor: updatedZone.per_km_motor,
       surge: updatedZone.surge_multiplier,
     });
   };
+
+  // Loading Screen
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4 text-white">
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-emerald-500 flex items-center justify-center font-black text-slate-950 text-xl animate-pulse">
+          K
+        </div>
+        <p className="text-xs text-slate-400 font-mono tracking-wider">
+          Memverifikasi Sesi Administrator KAWAI 0511...
+        </p>
+      </div>
+    );
+  }
+
+  // Not Logged In: Show Login Page
+  if (!user) {
+    return <LoginPage />;
+  }
 
   const pendingVerifications = drivers.filter(d => d.status === 'pending_verification').length;
   const activeOrdersCount = orders.filter(o => o.status === 'in_progress' || o.status === 'assigned').length;
@@ -170,9 +170,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500/30 selection:text-emerald-200">
-      {/* Top Bar */}
+      {/* Top Header */}
       <Header 
         onOpenDbModal={() => setIsDbModalOpen(true)}
+        onOpenProfile={() => setCurrentTab('profile')}
         activeOrdersCount={activeOrdersCount}
         activeDriversCount={activeDriversCount}
       />
@@ -185,8 +186,9 @@ export default function App() {
           pendingVerifications={pendingVerifications}
         />
 
-        {/* Dynamic Main Workspace */}
+        {/* Dynamic Workspace */}
         <main className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-6">
+          {/* 1. Dashboard */}
           {currentTab === 'dashboard' && (
             <DashboardView 
               drivers={drivers}
@@ -195,6 +197,16 @@ export default function App() {
             />
           )}
 
+          {/* 2. Users Management */}
+          {currentTab === 'users' && (
+            <UsersPage 
+              users={users}
+              isSimulation={!isSupabaseConfigured}
+              onUpdateUserStatus={handleUpdateUserStatus}
+            />
+          )}
+
+          {/* 3. Drivers Management */}
           {currentTab === 'drivers' && (
             <DriversView 
               drivers={drivers}
@@ -204,39 +216,101 @@ export default function App() {
             />
           )}
 
+          {/* 4. Orders & Live Dispatch */}
           {currentTab === 'orders' && (
             <OrdersView 
               orders={orders}
               drivers={drivers}
               onAssignDriver={handleAssignDriver}
               onUpdateOrderStatus={handleUpdateOrderStatus}
+              onSelectOrder={(order) => setSelectedOrderForDetail(order)}
             />
           )}
 
+          {/* 5. Analytics */}
+          {currentTab === 'analytics' && (
+            <AnalyticsPage 
+              isSimulation={!isSupabaseConfigured}
+            />
+          )}
+
+          {/* 6. Operational Zones & Tariffs */}
           {currentTab === 'zones' && (
-            <ZonesView 
-              zones={zones}
-              onUpdateZone={handleUpdateZone}
-            />
+            hasRole(['superadmin', 'dispatcher', 'finance']) ? (
+              <ZonesView 
+                zones={zones}
+                onUpdateZone={handleUpdateZone}
+              />
+            ) : (
+              <Forbidden403 
+                onBackToDashboard={() => setCurrentTab('dashboard')}
+                requiredRole="superadmin, dispatcher, atau finance"
+                userRole={user.role}
+              />
+            )
           )}
 
+          {/* 7. Security & Audit Trail */}
           {currentTab === 'security' && (
             <SecurityAuditView 
               auditLogs={auditLogs}
             />
           )}
 
+          {/* 8. Settings */}
+          {currentTab === 'settings' && (
+            <SettingsPage 
+              onOpenDbModal={() => setIsDbModalOpen(true)}
+              onRecordAudit={recordAudit}
+            />
+          )}
+
+          {/* 9. Profile */}
+          {currentTab === 'profile' && (
+            <ProfilePage />
+          )}
+
+          {/* 10. Deployment & Cloudflare */}
           {currentTab === 'deployment' && (
             <DeploymentStatusView />
+          )}
+
+          {/* 11. 403 & 404 Fallbacks */}
+          {currentTab === 'forbidden' && (
+            <Forbidden403 
+              onBackToDashboard={() => setCurrentTab('dashboard')}
+              userRole={user.role}
+            />
+          )}
+
+          {currentTab === 'not_found' && (
+            <NotFound404 
+              onBackToDashboard={() => setCurrentTab('dashboard')}
+            />
           )}
         </main>
       </div>
 
-      {/* Connectivity Diagnostics Modal */}
+      {/* Order Detail Modal */}
+      <OrderDetailModal 
+        order={selectedOrderForDetail}
+        onClose={() => setSelectedOrderForDetail(null)}
+        onUpdateStatus={handleUpdateOrderStatus}
+      />
+
+      {/* Supabase & Cloudflare Connection Modal */}
       <SupabaseCloudflareModal 
         isOpen={isDbModalOpen}
         onClose={() => setIsDbModalOpen(false)}
       />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

@@ -20,6 +20,7 @@ interface OrdersViewProps {
   drivers: Driver[];
   onAssignDriver: (orderId: string, driverId: string) => void;
   onUpdateOrderStatus: (orderId: string, status: OrderStatus, reason?: string) => void;
+  onSelectOrder?: (order: Order) => void;
 }
 
 export const OrdersView: React.FC<OrdersViewProps> = ({
@@ -27,6 +28,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   drivers,
   onAssignDriver,
   onUpdateOrderStatus,
+  onSelectOrder,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -211,6 +213,15 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {onSelectOrder && (
+                      <button
+                        onClick={() => onSelectOrder(order)}
+                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition-colors font-medium text-[10px]"
+                      >
+                        Rincian
+                      </button>
+                    )}
+
                     {order.status === 'pending' && (
                       <button
                         onClick={() => {

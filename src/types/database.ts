@@ -110,3 +110,40 @@ export interface DashboardMetrics {
   pendingVerifications: number;
   averageRating: number;
 }
+
+export interface AppUser {
+  id: string;
+  full_name: string;
+  phone: string;
+  email?: string | null;
+  status: 'active' | 'suspended';
+  total_orders: number;
+  wallet_balance: number;
+  created_at: string;
+  last_order_at?: string;
+}
+
+export interface AnalyticsSummary {
+  period: 'today' | 'this_week' | 'this_month';
+  totalOrders: number;
+  completedRate: number;
+  totalVolumeIdr: number;
+  averageTripDistanceKm: number;
+  hourlyTrends: { hour: string; trips: number }[];
+  serviceBreakdown: { service: ServiceType; count: number; volumeIdr: number }[];
+}
+
+export type AdminPageView =
+  | 'dashboard'
+  | 'users'
+  | 'drivers'
+  | 'orders'
+  | 'analytics'
+  | 'zones'
+  | 'security'
+  | 'settings'
+  | 'profile'
+  | 'deployment'
+  | 'forbidden'
+  | 'not_found';
+

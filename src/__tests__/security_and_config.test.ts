@@ -52,3 +52,35 @@ test('4. Zero secret leak check in client code and .env.example', () => {
   const clientContent = fs.readFileSync(supabaseClientPath, 'utf-8');
   assert.ok(!clientContent.includes('service_role'), 'src/lib/supabase.ts must never contain service_role');
 });
+
+test('5. Verify all 11 required admin pages & components exist', () => {
+  const requiredFiles = [
+    'src/features/auth/LoginPage.tsx',
+    'src/components/DashboardView.tsx',
+    'src/features/users/UsersPage.tsx',
+    'src/components/DriversView.tsx',
+    'src/components/OrdersView.tsx',
+    'src/features/orders/OrderDetailModal.tsx',
+    'src/features/analytics/AnalyticsPage.tsx',
+    'src/features/settings/SettingsPage.tsx',
+    'src/features/profile/ProfilePage.tsx',
+    'src/components/Forbidden403.tsx',
+    'src/components/NotFound404.tsx',
+  ];
+
+  for (const relPath of requiredFiles) {
+    const fullPath = path.resolve(process.cwd(), relPath);
+    assert.ok(fs.existsSync(fullPath), `Required page/component ${relPath} must exist`);
+  }
+});
+
+test('6. Verify API data access layer structure and simulation fallback', async () => {
+  const apiPath = path.resolve(process.cwd(), 'src/lib/api.ts');
+  assert.ok(fs.existsSync(apiPath), 'src/lib/api.ts must exist');
+  const content = fs.readFileSync(apiPath, 'utf-8');
+  assert.ok(content.includes('isSimulation: boolean'), 'API must return isSimulation flag');
+  assert.ok(content.includes('getUsers'), 'API must define getUsers');
+  assert.ok(content.includes('getDrivers'), 'API must define getDrivers');
+  assert.ok(content.includes('getOrders'), 'API must define getOrders');
+});
+

@@ -8,21 +8,26 @@ import {
   CheckCircle2, 
   AlertTriangle,
   MapPin,
-  ExternalLink
+  LogOut,
+  User
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { useAuth } from '../features/auth/AuthContext';
 
 interface HeaderProps {
   onOpenDbModal: () => void;
+  onOpenProfile: () => void;
   activeOrdersCount: number;
   activeDriversCount: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
   onOpenDbModal, 
+  onOpenProfile,
   activeOrdersCount, 
   activeDriversCount 
 }) => {
+  const { user, isDemoSession, logout } = useAuth();
   const [timeStr, setTimeStr] = useState<string>('');
 
   useEffect(() => {
@@ -64,7 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <p className="text-xs text-slate-400 flex items-center gap-1">
             <MapPin className="w-3 h-3 text-amber-400" />
-            Admin Panel Operasional Banjarmasin & Sekitarnya
+            Admin Panel Operasional Banjarmasin &amp; Sekitarnya
           </p>
         </div>
       </div>
@@ -98,11 +103,11 @@ export const Header: React.FC<HeaderProps> = ({
               ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/40'
               : 'bg-amber-950/50 border-amber-500/40 text-amber-300 hover:bg-amber-900/40'
           }`}
-          title="Klik untuk melihat status koneksi Supabase & panduan Cloudflare"
+          title="Klik untuk melihat diagnostik koneksi Supabase & panduan Cloudflare"
         >
           <Database className="w-3.5 h-3.5" />
           <span className="hidden md:inline">Supabase:</span>
-          <span>{isSupabaseConfigured ? 'Terhubung (Prod)' : 'Standby / Audit Mode'}</span>
+          <span>{isSupabaseConfigured ? 'Terhubung (Prod)' : 'Standby / Evaluasi'}</span>
           {isSupabaseConfigured ? (
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
           ) : (
@@ -110,15 +115,29 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </button>
 
-        {/* User Role */}
+        {/* User Profile & Logout */}
         <div className="flex items-center space-x-2 pl-2 border-l border-slate-800">
-          <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-emerald-400">
-            AD
-          </div>
-          <div className="hidden xl:block text-left">
-            <p className="text-xs font-semibold text-slate-200">Admin Utama</p>
-            <p className="text-[10px] text-emerald-400 font-mono">superadmin</p>
-          </div>
+          <button
+            onClick={onOpenProfile}
+            className="flex items-center gap-2 text-left hover:opacity-80 transition-opacity"
+            title="Buka profil admin"
+          >
+            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-emerald-400">
+              {user?.full_name ? user.full_name.slice(0, 2).toUpperCase() : 'AD'}
+            </div>
+            <div className="hidden xl:block">
+              <p className="text-xs font-semibold text-slate-200">{user?.full_name || 'Admin'}</p>
+              <p className="text-[10px] text-emerald-400 font-mono capitalize">{user?.role || 'superadmin'}</p>
+            </div>
+          </button>
+
+          <button
+            onClick={logout}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
+            title="Keluar (Logout)"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </header>
