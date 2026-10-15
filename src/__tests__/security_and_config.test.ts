@@ -91,3 +91,49 @@ test('7. Verify GitHub Actions CI workflow exists', () => {
   const ciPath = path.resolve(process.cwd(), '.github/workflows/ci.yml');
   assert.ok(fs.existsSync(ciPath), '.github/workflows/ci.yml must exist');
 });
+
+test('8. Verify KAWAI 0511 brand identity assets and reference navigation views', () => {
+  const brandFiles = [
+    'src/components/KawaiLogo.tsx',
+    'src/components/KawaiMascot.tsx',
+    'src/features/payments/PaymentsPage.tsx',
+    'src/features/services/ServicesPage.tsx',
+    'src/features/support/SupportPage.tsx',
+  ];
+
+  for (const relPath of brandFiles) {
+    const fullPath = path.resolve(process.cwd(), relPath);
+    assert.ok(fs.existsSync(fullPath), `Brand component ${relPath} must exist`);
+  }
+
+  const logoContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/KawaiLogo.tsx'), 'utf-8');
+  assert.ok(logoContent.includes('KAWAI'), 'Logo must contain KAWAI product name');
+  assert.ok(logoContent.includes('0511'), 'Logo must contain 0511 area identifier');
+
+  const mascotContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/KawaiMascot.tsx'), 'utf-8');
+  assert.ok(mascotContent.includes('Bersama KAWAI 0511'), 'Mascot must include slogan text');
+});
+
+test('9. Verify DashboardView components matching reference design layout', () => {
+  const dashPath = path.resolve(process.cwd(), 'src/components/DashboardView.tsx');
+  const dashContent = fs.readFileSync(dashPath, 'utf-8');
+
+  // Verify Header & 4 Stat Cards
+  assert.ok(dashContent.includes('Ringkasan Operasional'), 'Dashboard must contain Ringkasan Operasional header');
+  assert.ok(dashContent.includes('Pesanan Hari Ini'), 'Card 1: Pesanan Hari Ini');
+  assert.ok(dashContent.includes('Mitra Aktif'), 'Card 2: Mitra Aktif');
+  assert.ok(dashContent.includes('Pengguna'), 'Card 3: Pengguna');
+  assert.ok(dashContent.includes('Pendapatan Hari Ini'), 'Card 4: Pendapatan Hari Ini');
+
+  // Verify Main Grid Sections
+  assert.ok(dashContent.includes('Tren Pesanan'), 'Section: Tren Pesanan chart');
+  assert.ok(dashContent.includes('Pesanan Terbaru'), 'Section: Pesanan Terbaru table');
+  assert.ok(dashContent.includes('Zona Operasional'), 'Section: Zona Operasional list');
+  assert.ok(dashContent.includes('Status Sistem'), 'Section: Status Sistem card');
+
+  // Verify Chart & Table features
+  assert.ok(dashContent.includes('Selesai'), 'Legend Selesai');
+  assert.ok(dashContent.includes('Dibatalkan'), 'Legend Dibatalkan');
+  assert.ok(dashContent.includes('Semua sistem berfungsi dengan baik'), 'System health check card');
+});
+

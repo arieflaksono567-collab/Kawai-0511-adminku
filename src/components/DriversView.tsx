@@ -15,7 +15,8 @@ import {
   Ban, 
   RefreshCw,
   Car,
-  Bike
+  Bike,
+  UserCheck
 } from 'lucide-react';
 import { Driver, DriverStatus } from '../types/database';
 
@@ -40,7 +41,7 @@ export const DriversView: React.FC<DriversViewProps> = ({
   const [selectedDriverForDoc, setSelectedDriverForDoc] = useState<Driver | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  // New driver form
+  // Form states
   const [newFullName, setNewFullName] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [newVehicleType, setNewVehicleType] = useState<'motor' | 'mobil'>('motor');
@@ -51,9 +52,9 @@ export const DriversView: React.FC<DriversViewProps> = ({
   const filteredDrivers = drivers.filter((driver) => {
     const matchesSearch = 
       driver.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      driver.phone.includes(searchTerm) ||
-      driver.plate_number.toLowerCase().includes(searchTerm.toLowerCase());
-    
+      driver.plate_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      driver.phone.includes(searchTerm);
+
     const matchesStatus = statusFilter === 'all' || driver.status === statusFilter;
     const matchesType = typeFilter === 'all' || driver.vehicle_type === typeFilter;
 
@@ -96,20 +97,20 @@ export const DriversView: React.FC<DriversViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Header & Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-white border border-slate-100 p-5 rounded-2xl shadow-sm">
         <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Users className="w-5 h-5 text-emerald-400" />
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <UserCheck className="w-5 h-5 text-red-600" />
             Manajemen Mitra Pengemudi (KAWAI 0511)
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 mt-1">
             Verifikasi berkas, pantau rating operasional, status suspensi, dan saldo dompet mitra.
           </p>
         </div>
 
         <button
           onClick={() => setIsAddModalOpen(true)}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs rounded-xl shadow transition-colors flex items-center gap-1.5"
+          className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-sm shadow-red-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           Daftarkan Driver Baru
@@ -117,7 +118,7 @@ export const DriversView: React.FC<DriversViewProps> = ({
       </div>
 
       {/* Filters Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/80 border border-slate-800 p-3.5 rounded-xl">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-100 p-3.5 rounded-xl shadow-2xs">
         <div className="flex items-center gap-2 flex-1 min-w-[240px]">
           <Search className="w-4 h-4 text-slate-400" />
           <input
@@ -125,48 +126,48 @@ export const DriversView: React.FC<DriversViewProps> = ({
             placeholder="Cari nama, nomor plat DA, nomor HP..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-950/60 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-400"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
           {/* Status Filter */}
-          <div className="flex items-center gap-1 bg-slate-950/60 border border-slate-700/80 rounded-lg px-2 py-1">
-            <span className="text-slate-400">Status:</span>
+          <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1">
+            <span className="text-slate-500">Status:</span>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-transparent text-slate-200 focus:outline-none font-medium text-xs cursor-pointer"
+              className="bg-transparent text-slate-700 focus:outline-none font-medium text-xs cursor-pointer"
             >
-              <option value="all" className="bg-slate-900">Semua Status</option>
-              <option value="active" className="bg-slate-900">Aktif On-Duty</option>
-              <option value="pending_verification" className="bg-slate-900">Menunggu Verifikasi</option>
-              <option value="suspended" className="bg-slate-900">Ditangguhkan (Suspended)</option>
-              <option value="inactive" className="bg-slate-900">Nonaktif</option>
+              <option value="all">Semua Status</option>
+              <option value="active">Aktif On-Duty</option>
+              <option value="pending_verification">Menunggu Verifikasi</option>
+              <option value="suspended">Ditangguhkan (Suspended)</option>
+              <option value="inactive">Nonaktif</option>
             </select>
           </div>
 
           {/* Vehicle Type Filter */}
-          <div className="flex items-center gap-1 bg-slate-950/60 border border-slate-700/80 rounded-lg px-2 py-1">
-            <span className="text-slate-400">Armada:</span>
+          <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1">
+            <span className="text-slate-500">Armada:</span>
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
-              className="bg-transparent text-slate-200 focus:outline-none font-medium text-xs cursor-pointer"
+              className="bg-transparent text-slate-700 focus:outline-none font-medium text-xs cursor-pointer"
             >
-              <option value="all" className="bg-slate-900">Semua Armada</option>
-              <option value="motor" className="bg-slate-900">Motor (Roda 2)</option>
-              <option value="mobil" className="bg-slate-900">Mobil (Roda 4)</option>
+              <option value="all">Semua Armada</option>
+              <option value="motor">Motor (Roda 2)</option>
+              <option value="mobil">Mobil (Roda 4)</option>
             </select>
           </div>
         </div>
       </div>
 
       {/* Drivers Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+      <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-slate-950/60 text-slate-400 border-b border-slate-800 font-semibold uppercase tracking-wider text-[10px]">
+            <thead className="bg-slate-50/80 text-slate-500 border-b border-slate-100 font-semibold text-[11px]">
               <tr>
                 <th className="py-3 px-4">Mitra Pengemudi</th>
                 <th className="py-3 px-4">Kendaraan</th>
@@ -177,10 +178,10 @@ export const DriversView: React.FC<DriversViewProps> = ({
                 <th className="py-3 px-4 text-right">Aksi Operasional</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
+            <tbody className="divide-y divide-slate-100">
               {filteredDrivers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-500">
+                  <td colSpan={7} className="py-8 text-center text-slate-400">
                     Tidak ada driver yang cocok dengan kriteria pencarian.
                   </td>
                 </tr>
@@ -193,21 +194,21 @@ export const DriversView: React.FC<DriversViewProps> = ({
                     driver.documents.skck === 'verified';
 
                   return (
-                    <tr key={driver.id} className="hover:bg-slate-800/40 transition-colors">
+                    <tr key={driver.id} className="hover:bg-slate-50/70 transition-colors">
                       {/* Driver info */}
                       <td className="py-3.5 px-4">
                         <div className="flex items-center space-x-3">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
                             driver.vehicle_type === 'motor' 
-                              ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/30' 
-                              : 'bg-cyan-950 text-cyan-400 border border-cyan-500/30'
+                              ? 'bg-blue-50 text-blue-600 border border-blue-200' 
+                              : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
                           }`}>
                             {driver.vehicle_type === 'motor' ? <Bike className="w-4 h-4" /> : <Car className="w-4 h-4" />}
                           </div>
                           <div>
-                            <p className="font-bold text-slate-200">{driver.full_name}</p>
-                            <p className="text-[11px] text-slate-400 flex items-center gap-1 font-mono">
-                              <Phone className="w-3 h-3 text-slate-500" />
+                            <p className="font-bold text-slate-800">{driver.full_name}</p>
+                            <p className="text-[11px] text-slate-500 flex items-center gap-1 font-mono">
+                              <Phone className="w-3 h-3 text-slate-400" />
                               {driver.phone}
                             </p>
                           </div>
@@ -216,30 +217,30 @@ export const DriversView: React.FC<DriversViewProps> = ({
 
                       {/* Vehicle info */}
                       <td className="py-3.5 px-4">
-                        <div className="font-mono font-bold text-amber-300">
+                        <div className="font-mono font-bold text-slate-800">
                           {driver.plate_number}
                         </div>
-                        <div className="text-[11px] text-slate-400">
+                        <div className="text-[11px] text-slate-500">
                           {driver.vehicle_brand || 'Standar'} ({driver.vehicle_year || 2023})
                         </div>
                       </td>
 
                       {/* Status */}
                       <td className="py-3.5 px-4">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
                           driver.status === 'active' 
-                            ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/30' :
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                           driver.status === 'pending_verification'
-                            ? 'bg-amber-950/80 text-amber-300 border-amber-500/30 animate-pulse' :
+                            ? 'bg-amber-50 text-amber-700 border-amber-200 animate-pulse' :
                           driver.status === 'suspended'
-                            ? 'bg-rose-950/80 text-rose-300 border-rose-500/30' :
-                            'bg-slate-800 text-slate-400 border-slate-700'
+                            ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                            'bg-slate-100 text-slate-600 border-slate-200'
                         }`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${
-                            driver.status === 'active' ? 'bg-emerald-400' :
-                            driver.status === 'pending_verification' ? 'bg-amber-400' :
-                            driver.status === 'suspended' ? 'bg-rose-400' : 'bg-slate-400'
-                          }`}></span>
+                            driver.status === 'active' ? 'bg-emerald-500' :
+                            driver.status === 'pending_verification' ? 'bg-amber-500' :
+                            driver.status === 'suspended' ? 'bg-rose-500' : 'bg-slate-400'
+                          }`} />
                           {driver.status === 'active' ? 'Aktif On-Duty' :
                            driver.status === 'pending_verification' ? 'Verifikasi Berkas' :
                            driver.status === 'suspended' ? 'Ditangguhkan' : 'Nonaktif'}
@@ -248,8 +249,8 @@ export const DriversView: React.FC<DriversViewProps> = ({
 
                       {/* Performance */}
                       <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-1 text-amber-400 font-bold">
-                          <Star className="w-3.5 h-3.5 fill-amber-400" />
+                        <div className="flex items-center gap-1 text-amber-500 font-bold">
+                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
                           <span>{driver.rating.toFixed(2)}</span>
                         </div>
                         <div className="text-[10px] text-slate-400">
@@ -259,20 +260,20 @@ export const DriversView: React.FC<DriversViewProps> = ({
 
                       {/* Wallet Balance */}
                       <td className="py-3.5 px-4">
-                        <div className="font-semibold text-slate-200">
+                        <div className="font-bold text-slate-800">
                           {formatIDR(driver.wallet_balance)}
                         </div>
-                        <span className="text-[10px] text-emerald-400">Dompet KAWAI</span>
+                        <span className="text-[10px] text-slate-400">Dompet KAWAI</span>
                       </td>
 
                       {/* Documents */}
                       <td className="py-3.5 px-4">
                         <button
                           onClick={() => setSelectedDriverForDoc(driver)}
-                          className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors ${
                             isVerified 
-                              ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30 hover:bg-emerald-900/40'
-                              : 'bg-amber-950/40 text-amber-300 border-amber-500/30 hover:bg-amber-900/40'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                              : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
                           }`}
                         >
                           <FileText className="w-3 h-3" />
@@ -286,7 +287,7 @@ export const DriversView: React.FC<DriversViewProps> = ({
                           {driver.status === 'suspended' ? (
                             <button
                               onClick={() => onUpdateDriverStatus(driver.id, 'active', `Mengaktifkan kembali akun driver ${driver.full_name}`)}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-lg text-[10px] transition-colors"
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-[11px] transition-colors"
                               title="Cabut suspensi & aktifkan"
                             >
                               Aktifkan
@@ -294,7 +295,7 @@ export const DriversView: React.FC<DriversViewProps> = ({
                           ) : driver.status === 'active' ? (
                             <button
                               onClick={() => onUpdateDriverStatus(driver.id, 'suspended', `Menangguhkan akun driver ${driver.full_name} untuk investigasi`)}
-                              className="px-2.5 py-1 bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-500/30 font-medium rounded-lg text-[10px] transition-colors"
+                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-medium rounded-lg text-[11px] transition-colors"
                               title="Tangguhkan akun"
                             >
                               Suspend
@@ -302,7 +303,7 @@ export const DriversView: React.FC<DriversViewProps> = ({
                           ) : (
                             <button
                               onClick={() => onApproveDocuments(driver.id)}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-lg text-[10px] transition-colors"
+                              className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-[11px] transition-colors shadow-2xs"
                             >
                               Setujui Mitra
                             </button>
@@ -320,16 +321,16 @@ export const DriversView: React.FC<DriversViewProps> = ({
 
       {/* Document Review Modal */}
       {selectedDriverForDoc && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl text-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <FileText className="w-4 h-4 text-emerald-400" />
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg p-6 shadow-2xl text-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-red-600" />
                 Audit Dokumen: {selectedDriverForDoc.full_name}
               </h3>
               <button 
                 onClick={() => setSelectedDriverForDoc(null)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-slate-700"
               >
                 ✕
               </button>
@@ -342,15 +343,15 @@ export const DriversView: React.FC<DriversViewProps> = ({
                 { label: 'STNK (Pajak Aktif Kalimantan Selatan)', key: 'stnk', status: selectedDriverForDoc.documents.stnk },
                 { label: 'SKCK / Catatan Kepolisian', key: 'skck', status: selectedDriverForDoc.documents.skck },
               ].map((doc, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+                <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
                   <div>
-                    <p className="font-semibold text-slate-200">{doc.label}</p>
+                    <p className="font-semibold text-slate-800">{doc.label}</p>
                     <p className="text-[10px] text-slate-500">Pemeriksaan integritas berkas digital</p>
                   </div>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
                     doc.status === 'verified'
-                      ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40'
-                      : 'bg-amber-950/80 text-amber-300 border-amber-500/40'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-amber-50 text-amber-700 border-amber-200'
                   }`}>
                     {doc.status === 'verified' ? 'Terverifikasi' : 'Pending Review'}
                   </span>
@@ -358,10 +359,10 @@ export const DriversView: React.FC<DriversViewProps> = ({
               ))}
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 onClick={() => setSelectedDriverForDoc(null)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl hover:bg-slate-700 font-medium"
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-medium"
               >
                 Tutup
               </button>
@@ -370,9 +371,9 @@ export const DriversView: React.FC<DriversViewProps> = ({
                   onApproveDocuments(selectedDriverForDoc.id);
                   setSelectedDriverForDoc(null);
                 }}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-xl shadow"
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-sm"
               >
-                Verifikasi & Setujui Semua
+                Verifikasi &amp; Setujui Semua
               </button>
             </div>
           </div>
@@ -381,16 +382,16 @@ export const DriversView: React.FC<DriversViewProps> = ({
 
       {/* Add Driver Modal */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl text-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Plus className="w-4 h-4 text-emerald-400" />
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 shadow-2xl text-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Plus className="w-4 h-4 text-red-600" />
                 Pendaftaran Mitra Baru (0511)
               </h3>
               <button 
                 onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-slate-700"
               >
                 ✕
               </button>
@@ -398,87 +399,87 @@ export const DriversView: React.FC<DriversViewProps> = ({
 
             <form onSubmit={handleCreateDriver} className="space-y-3">
               <div>
-                <label className="block text-slate-400 mb-1">Nama Lengkap Sesuai KTP</label>
+                <label className="block text-slate-600 font-medium mb-1">Nama Lengkap Sesuai KTP</label>
                 <input
                   type="text"
                   required
                   placeholder="Contoh: Gusti Muhammad"
                   value={newFullName}
                   onChange={(e) => setNewFullName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-red-500"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Nomor WhatsApp Aktif</label>
+                <label className="block text-slate-600 font-medium mb-1">Nomor WhatsApp Aktif</label>
                 <input
                   type="text"
                   required
                   placeholder="Contoh: 0812-5550-XXXX"
                   value={newPhone}
                   onChange={(e) => setNewPhone(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-red-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Jenis Armada</label>
+                  <label className="block text-slate-600 font-medium mb-1">Jenis Armada</label>
                   <select
                     value={newVehicleType}
                     onChange={(e) => setNewVehicleType(e.target.value as any)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-red-500"
                   >
                     <option value="motor">Motor (Roda 2)</option>
                     <option value="mobil">Mobil (Roda 4)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Nomor Plat (DA)</label>
+                  <label className="block text-slate-600 font-medium mb-1">Nomor Plat (DA)</label>
                   <input
                     type="text"
                     required
                     placeholder="Contoh: DA 2341 XY"
                     value={newPlateNumber}
                     onChange={(e) => setNewPlateNumber(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white uppercase focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 uppercase focus:outline-none focus:border-red-500"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Merek & Model</label>
+                  <label className="block text-slate-600 font-medium mb-1">Merek &amp; Model</label>
                   <input
                     type="text"
                     placeholder="Contoh: Honda Vario 160"
                     value={newVehicleBrand}
                     onChange={(e) => setNewVehicleBrand(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-red-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Tahun Perakitan</label>
+                  <label className="block text-slate-600 font-medium mb-1">Tahun Perakitan</label>
                   <input
                     type="number"
                     value={newVehicleYear}
                     onChange={(e) => setNewVehicleYear(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-red-500"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-800">
+              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl hover:bg-slate-700"
+                  className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-medium"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-xl shadow"
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-sm shadow-red-500/20"
                 >
                   Simpan Driver
                 </button>

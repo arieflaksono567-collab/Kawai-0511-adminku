@@ -9,9 +9,10 @@ import {
   AlertCircle, 
   MapPin, 
   CreditCard, 
-  UserCheck,
-  Send,
-  ArrowRight
+  UserCheck, 
+  Send, 
+  ArrowRight,
+  Package
 } from 'lucide-react';
 import { Order, Driver, OrderStatus } from '../types/database';
 
@@ -38,10 +39,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const activeDrivers = drivers.filter(d => d.status === 'active');
 
   const filteredOrders = orders.filter((order) => {
-    const matchesSearch =
+    const matchesSearch = 
       order.order_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (order.driver_name && order.driver_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
       order.origin_address.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.destination_address.toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -67,26 +67,26 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-white border border-slate-100 p-5 rounded-2xl shadow-sm">
         <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Car className="w-5 h-5 text-emerald-400" />
-            Manajemen Pesanan & Live Dispatch (0511)
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Package className="w-5 h-5 text-red-600" />
+            Manajemen Pesanan &amp; Live Dispatch (0511)
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 mt-1">
             Pantau arus trip real-time, lakukan intervensi dispatch manual, verifikasi pembayaran, dan tangani komplain trip.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="text-xs bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 font-mono">
-            Total Trip: <span className="font-bold text-emerald-400">{orders.length}</span>
+          <div className="text-xs bg-slate-50 text-slate-700 px-3 py-1.5 rounded-xl border border-slate-200 font-mono">
+            Total Trip: <span className="font-bold text-red-600">{orders.length}</span>
           </div>
         </div>
       </div>
 
       {/* Filter & Search */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/80 border border-slate-800 p-3.5 rounded-xl">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-100 p-3.5 rounded-xl shadow-2xs">
         <div className="flex items-center gap-2 flex-1 min-w-[240px]">
           <Search className="w-4 h-4 text-slate-400" />
           <input
@@ -94,45 +94,45 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             placeholder="Cari kode pesanan, nama penumpang, lokasi penjemputan..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-950/60 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-400"
           />
         </div>
 
-        <div className="flex items-center gap-1 bg-slate-950/60 border border-slate-700/80 rounded-lg px-2 py-1 text-xs">
-          <span className="text-slate-400">Status Trip:</span>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-slate-500">Status Trip:</span>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-transparent text-slate-200 focus:outline-none font-medium text-xs cursor-pointer"
+            className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-slate-700 focus:outline-none"
           >
-            <option value="all" className="bg-slate-900">Semua Status</option>
-            <option value="pending" className="bg-slate-900">Mencari Driver (Pending)</option>
-            <option value="assigned" className="bg-slate-900">Driver Menuju Lokasi</option>
-            <option value="in_progress" className="bg-slate-900">Sedang Diantar (In-Progress)</option>
-            <option value="completed" className="bg-slate-900">Selesai</option>
-            <option value="cancelled" className="bg-slate-900">Dibatalkan</option>
+            <option value="all">Semua Status</option>
+            <option value="pending">Mencari Driver (Pending)</option>
+            <option value="assigned">Driver Menuju Lokasi</option>
+            <option value="in_progress">Sedang Diantar (In-Progress)</option>
+            <option value="completed">Selesai</option>
+            <option value="cancelled">Dibatalkan</option>
           </select>
         </div>
       </div>
 
       {/* Orders List */}
-      <div className="grid grid-cols-1 gap-3">
+      <div className="grid grid-cols-1 gap-3.5">
         {filteredOrders.length === 0 ? (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-500 text-xs">
+          <div className="bg-white border border-slate-100 rounded-2xl p-8 text-center text-slate-400 text-xs shadow-sm">
             Tidak ada pesanan yang sesuai dengan filter.
           </div>
         ) : (
           filteredOrders.map((order) => {
             const statusBadgeClasses = {
-              pending: 'bg-amber-950/80 text-amber-300 border-amber-500/30 animate-pulse',
-              assigned: 'bg-blue-950/80 text-blue-300 border-blue-500/30',
-              in_progress: 'bg-emerald-950/80 text-emerald-300 border-emerald-500/30 font-bold',
-              completed: 'bg-slate-800 text-slate-400 border-slate-700',
-              cancelled: 'bg-rose-950/80 text-rose-300 border-rose-500/30',
+              pending: 'bg-blue-50 text-blue-700 border-blue-200 animate-pulse',
+              assigned: 'bg-teal-50 text-teal-700 border-teal-200',
+              in_progress: 'bg-amber-50 text-amber-700 border-amber-200 font-bold',
+              completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+              cancelled: 'bg-rose-50 text-rose-700 border-rose-200',
             };
 
             const statusText = {
-              pending: 'Antrean / Mencari Driver',
+              pending: 'Mencari Driver',
               assigned: 'Driver Ditugaskan',
               in_progress: 'Sedang Mengantar',
               completed: 'Trip Selesai',
@@ -142,63 +142,64 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             return (
               <div
                 key={order.id}
-                className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 transition-all shadow-sm text-xs space-y-3"
+                className="bg-white border border-slate-100 hover:border-slate-200 hover:shadow-md rounded-2xl p-4.5 transition-all shadow-sm text-xs space-y-3"
               >
                 {/* Header row */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-800/80">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-white text-sm">{order.order_number}</span>
-                    <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-medium text-[10px]">
+                    <span className="font-mono font-bold text-slate-900 text-sm">{order.order_number}</span>
+                    <span className="px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-medium text-[11px]">
                       {order.service === 'ride_motor' ? 'KAWAI Motor' :
                        order.service === 'ride_car' ? 'KAWAI Mobil' :
-                       order.service === 'food' ? 'KAWAI Kuliner' : 'KAWAI Kirim'}
+                       order.service === 'food' ? 'KAWAI Kuliner' : 'KAWAI Kurir'}
                     </span>
-                    <span className={`px-2.5 py-0.5 rounded-full border text-[10px] font-semibold ${statusBadgeClasses[order.status]}`}>
+                    <span className={`px-2.5 py-0.5 rounded-full border text-[11px] font-semibold ${statusBadgeClasses[order.status]}`}>
                       {statusText[order.status]}
                     </span>
                   </div>
 
                   <div className="flex items-center gap-3">
                     <div className="text-right">
-                      <span className="text-base font-bold text-emerald-400">{formatIDR(order.fare_amount)}</span>
-                      <p className="text-[10px] text-slate-500">
-                        Metode: <span className="uppercase text-slate-300 font-semibold">{order.payment_method}</span> ({order.payment_status})
+                      <span className="text-base font-extrabold text-slate-900">{formatIDR(order.fare_amount)}</span>
+                      <p className="text-[10px] text-slate-400">
+                        Metode: <span className="uppercase text-slate-600 font-semibold">{order.payment_method}</span> ({order.payment_status})
                       </p>
                     </div>
                   </div>
                 </div>
 
                 {/* Route & Customer row */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800/60">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50/60 p-3 rounded-xl border border-slate-100">
                   <div className="space-y-1.5">
                     <div className="flex items-start gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 mt-1 shrink-0"></div>
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 mt-1 shrink-0" />
                       <div>
                         <p className="text-[10px] text-slate-400 font-semibold uppercase">Penjemputan</p>
-                        <p className="text-slate-200 font-medium">{order.origin_address}</p>
+                        <p className="text-slate-800 font-medium">{order.origin_address}</p>
                       </div>
                     </div>
+
                     <div className="flex items-start gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full bg-rose-400 mt-1 shrink-0"></div>
+                      <div className="w-2.5 h-2.5 rounded-full bg-red-500 mt-1 shrink-0" />
                       <div>
                         <p className="text-[10px] text-slate-400 font-semibold uppercase">Tujuan Pengantaran</p>
-                        <p className="text-slate-200 font-medium">{order.destination_address}</p>
+                        <p className="text-slate-800 font-medium">{order.destination_address}</p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="space-y-1.5 border-t md:border-t-0 md:border-l border-slate-800/80 md:pl-3 pt-2 md:pt-0">
+                  <div className="space-y-1.5 border-t md:border-t-0 md:border-l border-slate-200/60 md:pl-3 pt-2 md:pt-0">
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Jarak Tempuh:</span>
-                      <span className="text-slate-200 font-bold font-mono">{order.distance_km} KM</span>
+                      <span className="text-slate-500">Jarak Tempuh:</span>
+                      <span className="text-slate-900 font-bold font-mono">{order.distance_km} KM</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Penumpang:</span>
-                      <span className="text-slate-200 font-medium">{order.customer_name} ({order.customer_phone})</span>
+                      <span className="text-slate-500">Penumpang:</span>
+                      <span className="text-slate-800 font-medium">{order.customer_name} ({order.customer_phone})</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Mitra Driver:</span>
-                      <span className="text-slate-200 font-semibold text-emerald-400">
+                      <span className="text-slate-500">Mitra Driver:</span>
+                      <span className="text-slate-800 font-semibold text-red-600">
                         {order.driver_name || 'Belum ada driver'}
                       </span>
                     </div>
@@ -206,17 +207,17 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 </div>
 
                 {/* Actions & Financial Split */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-slate-400">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-slate-500">
                   <div className="flex items-center gap-3">
-                    <span>Komisi KAWAI: <strong className="text-slate-200">{formatIDR(order.platform_fee)}</strong></span>
-                    <span>Bersih Driver: <strong className="text-emerald-400">{formatIDR(order.driver_net)}</strong></span>
+                    <span>Komisi Platform: <strong className="text-slate-800">{formatIDR(order.platform_fee)}</strong></span>
+                    <span>Pendapatan Mitra: <strong className="text-emerald-600">{formatIDR(order.driver_net)}</strong></span>
                   </div>
 
                   <div className="flex items-center gap-2">
                     {onSelectOrder && (
                       <button
                         onClick={() => onSelectOrder(order)}
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition-colors font-medium text-[10px]"
+                        className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg transition-colors font-medium text-[11px]"
                       >
                         Rincian
                       </button>
@@ -228,7 +229,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                           setSelectedOrderForAssign(order);
                           setSelectedDriverId(activeDrivers[0]?.id || '');
                         }}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-lg transition-colors flex items-center gap-1"
+                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors flex items-center gap-1 shadow-sm shadow-red-500/20"
                       >
                         <UserCheck className="w-3.5 h-3.5" />
                         Tugaskan Driver Manual
@@ -238,7 +239,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     {order.status === 'assigned' && (
                       <button
                         onClick={() => onUpdateOrderStatus(order.id, 'in_progress')}
-                        className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg transition-colors"
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
                       >
                         Set In-Progress
                       </button>
@@ -247,7 +248,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     {order.status === 'in_progress' && (
                       <button
                         onClick={() => onUpdateOrderStatus(order.id, 'completed')}
-                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-lg transition-colors"
+                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors"
                       >
                         Selesaikan Trip
                       </button>
@@ -256,7 +257,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     {(order.status === 'pending' || order.status === 'assigned') && (
                       <button
                         onClick={() => onUpdateOrderStatus(order.id, 'cancelled', 'Dibatalkan oleh dispatcher admin')}
-                        className="px-3 py-1 bg-slate-800 hover:bg-rose-950 text-rose-300 border border-slate-700 hover:border-rose-500/30 rounded-lg transition-colors"
+                        className="px-3 py-1 bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-700 border border-slate-200 rounded-lg transition-colors"
                       >
                         Batalkan Trip
                       </button>
@@ -271,31 +272,31 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
       {/* Manual Dispatch Modal */}
       {selectedOrderForAssign && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl text-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Send className="w-4 h-4 text-emerald-400" />
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 shadow-2xl text-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Send className="w-4 h-4 text-red-600" />
                 Intervensi Dispatch Manual
               </h3>
               <button 
                 onClick={() => setSelectedOrderForAssign(null)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-slate-700"
               >
                 ✕
               </button>
             </div>
 
-            <p className="text-slate-300">
-              Pilih driver aktif terdekat di Kota Banjarmasin untuk pesanan <strong className="text-white font-mono">{selectedOrderForAssign.order_number}</strong>:
+            <p className="text-slate-600">
+              Pilih driver aktif terdekat di Kota Banjarmasin untuk pesanan <strong className="text-slate-900 font-mono">{selectedOrderForAssign.order_number}</strong>:
             </p>
 
             <div className="space-y-2">
-              <label className="block text-slate-400">Driver Aktif Tersedia:</label>
+              <label className="block text-slate-600 font-semibold">Driver Aktif Tersedia:</label>
               <select
                 value={selectedDriverId}
                 onChange={(e) => setSelectedDriverId(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-800 focus:outline-none focus:border-red-500"
               >
                 {activeDrivers.map((driver) => (
                   <option key={driver.id} value={driver.id}>
@@ -305,16 +306,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               </select>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 onClick={() => setSelectedOrderForAssign(null)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl hover:bg-slate-700"
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-medium"
               >
                 Batal
               </button>
               <button
                 onClick={handleConfirmAssign}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-xl shadow"
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-sm"
               >
                 Konfirmasi Tugaskan
               </button>

@@ -15,6 +15,9 @@ import { OrderDetailModal } from './features/orders/OrderDetailModal';
 import { AnalyticsPage } from './features/analytics/AnalyticsPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { ProfilePage } from './features/profile/ProfilePage';
+import { PaymentsPage } from './features/payments/PaymentsPage';
+import { ServicesPage } from './features/services/ServicesPage';
+import { SupportPage } from './features/support/SupportPage';
 import { Forbidden403 } from './components/Forbidden403';
 import { NotFound404 } from './components/NotFound404';
 
@@ -35,6 +38,8 @@ function AppContent() {
   const { user, isLoading, isDemoSession, hasRole } = useAuth();
   const [currentTab, setCurrentTab] = useState<AdminPageView>('dashboard');
   const [isDbModalOpen, setIsDbModalOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [users, setUsers] = useState<AppUser[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -153,11 +158,11 @@ function AppContent() {
   // Loading Screen
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4 text-white">
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-emerald-500 flex items-center justify-center font-black text-slate-950 text-xl animate-pulse">
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-4 text-slate-800">
+        <div className="w-14 h-14 rounded-full bg-red-600 flex items-center justify-center font-black text-white text-2xl shadow-lg animate-pulse ring-4 ring-red-100">
           K
         </div>
-        <p className="text-xs text-slate-400 font-mono tracking-wider">
+        <p className="text-xs text-slate-500 font-medium tracking-wide">
           Memverifikasi Sesi Administrator KAWAI 0511...
         </p>
       </div>
@@ -174,25 +179,29 @@ function AppContent() {
   const activeDriversCount = drivers.filter(d => d.status === 'active').length;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500/30 selection:text-emerald-200">
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-red-500/20 selection:text-red-900">
       {/* Top Header */}
       <Header 
         onOpenDbModal={() => setIsDbModalOpen(true)}
         onOpenProfile={() => setCurrentTab('profile')}
+        onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        onSelectTab={setCurrentTab}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
         activeOrdersCount={activeOrdersCount}
         activeDriversCount={activeDriversCount}
       />
 
-      {/* Prominent Demo Mode Notice - Ensures simulation data is never confused with production */}
+      {/* Prominent Demo Mode Notice */}
       {isDemoSession && (
-        <div className="bg-amber-950 border-b border-amber-500/40 text-amber-200 px-6 py-2 text-xs flex items-center justify-between z-20 shadow-inner">
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-6 py-2 text-xs flex items-center justify-between z-20">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
             <span>
-              <strong>PERINGATAN: MODE EVALUASI / SIMULASI AKTIF (Peran: {user.role.toUpperCase()}):</strong> Sesi ini tidak terhubung ke database produksi Supabase. Seluruh data yang tampil adalah data simulasi operasional.
+              <strong>MODE EVALUASI / SIMULASI AKTIF (Peran: {user.role.toUpperCase()}):</strong> Sesi ini tidak terhubung ke database produksi Supabase. Seluruh data yang tampil adalah data simulasi operasional Banjarmasin.
             </span>
           </div>
-          <span className="text-[10px] font-mono bg-amber-900/80 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">
+          <span className="text-[10px] font-mono bg-amber-200/70 text-amber-800 px-2 py-0.5 rounded border border-amber-300 font-semibold">
             SIMULATION ONLY
           </span>
         </div>
@@ -200,14 +209,14 @@ function AppContent() {
 
       {/* Explicit Database Error Banner */}
       {apiError && (
-        <div className="bg-rose-950 border-b border-rose-500/40 text-rose-200 px-6 py-2 text-xs flex items-center justify-between z-20">
+        <div className="bg-red-50 border-b border-red-200 text-red-900 px-6 py-2 text-xs flex items-center justify-between z-20">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-rose-400">Database Supabase Error:</span>
+            <span className="font-bold text-red-700">Database Supabase Error:</span>
             <span>{apiError}</span>
           </div>
           <button 
             onClick={() => setApiError(null)} 
-            className="text-rose-400 hover:text-white font-bold px-2 py-0.5 rounded bg-rose-900/40"
+            className="text-red-700 hover:text-red-900 font-bold px-2 py-0.5 rounded bg-red-100 cursor-pointer"
           >
             Tutup
           </button>
@@ -220,39 +229,25 @@ function AppContent() {
           currentTab={currentTab}
           onSelectTab={setCurrentTab}
           pendingVerifications={pendingVerifications}
+          isOpenOnMobile={isMobileMenuOpen}
+          onCloseMobile={() => setIsMobileMenuOpen(false)}
         />
 
         {/* Dynamic Workspace */}
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-6">
-          {/* 1. Dashboard */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 space-y-6">
+          {/* 1. Ringkasan (Dashboard) */}
           {currentTab === 'dashboard' && (
             <DashboardView 
               drivers={drivers}
               orders={orders}
-              onSelectTab={setCurrentTab}
-            />
-          )}
-
-          {/* 2. Users Management */}
-          {currentTab === 'users' && (
-            <UsersPage 
               users={users}
-              isSimulation={!isSupabaseConfigured}
-              onUpdateUserStatus={handleUpdateUserStatus}
+              zones={zones}
+              onSelectTab={setCurrentTab}
+              onSelectOrder={(order) => setSelectedOrderForDetail(order)}
             />
           )}
 
-          {/* 3. Drivers Management */}
-          {currentTab === 'drivers' && (
-            <DriversView 
-              drivers={drivers}
-              onUpdateDriverStatus={handleUpdateDriverStatus}
-              onApproveDocuments={handleApproveDocuments}
-              onAddDriver={handleAddDriver}
-            />
-          )}
-
-          {/* 4. Orders & Live Dispatch */}
+          {/* 2. Pesanan (Orders & Live Dispatch) */}
           {currentTab === 'orders' && (
             <OrdersView 
               orders={orders}
@@ -263,14 +258,26 @@ function AppContent() {
             />
           )}
 
-          {/* 5. Analytics */}
-          {currentTab === 'analytics' && (
-            <AnalyticsPage 
+          {/* 3. Pengguna (Users Management) */}
+          {currentTab === 'users' && (
+            <UsersPage 
+              users={users}
               isSimulation={!isSupabaseConfigured}
+              onUpdateUserStatus={handleUpdateUserStatus}
             />
           )}
 
-          {/* 6. Operational Zones & Tariffs */}
+          {/* 4. Mitra Driver (Drivers Management) */}
+          {currentTab === 'drivers' && (
+            <DriversView 
+              drivers={drivers}
+              onUpdateDriverStatus={handleUpdateDriverStatus}
+              onApproveDocuments={handleApproveDocuments}
+              onAddDriver={handleAddDriver}
+            />
+          )}
+
+          {/* 5. Tarif & Zona (Operational Zones & Tariffs) */}
           {currentTab === 'zones' && (
             hasRole(['superadmin', 'dispatcher', 'finance']) ? (
               <ZonesView 
@@ -286,14 +293,36 @@ function AppContent() {
             )
           )}
 
-          {/* 7. Security & Audit Trail */}
+          {/* 6. Pembayaran (Payments & Transactions) */}
+          {currentTab === 'payments' && (
+            <PaymentsPage />
+          )}
+
+          {/* 7. Layanan (Service Catalog) */}
+          {currentTab === 'services' && (
+            <ServicesPage />
+          )}
+
+          {/* 8. Dukungan (Support Tickets & Helpdesk) */}
+          {currentTab === 'support' && (
+            <SupportPage />
+          )}
+
+          {/* 9. Analitik Operasional */}
+          {currentTab === 'analytics' && (
+            <AnalyticsPage 
+              isSimulation={!isSupabaseConfigured}
+            />
+          )}
+
+          {/* 10. Audit Log (Security & Audit Trail) */}
           {currentTab === 'security' && (
             <SecurityAuditView 
               auditLogs={auditLogs}
             />
           )}
 
-          {/* 8. Settings */}
+          {/* 11. Pengaturan Sistem */}
           {currentTab === 'settings' && (
             <SettingsPage 
               onOpenDbModal={() => setIsDbModalOpen(true)}
@@ -301,17 +330,17 @@ function AppContent() {
             />
           )}
 
-          {/* 9. Profile */}
+          {/* 12. Profil Administrator */}
           {currentTab === 'profile' && (
             <ProfilePage />
           )}
 
-          {/* 10. Deployment & Cloudflare */}
+          {/* 13. Status Cloudflare & DB Deployment */}
           {currentTab === 'deployment' && (
             <DeploymentStatusView />
           )}
 
-          {/* 11. 403 & 404 Fallbacks */}
+          {/* 14. 403 & 404 Fallbacks */}
           {currentTab === 'forbidden' && (
             <Forbidden403 
               onBackToDashboard={() => setCurrentTab('dashboard')}
