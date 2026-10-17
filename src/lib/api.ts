@@ -14,7 +14,8 @@ import {
   OrderStatus, 
   ServiceZone, 
   AuditLog, 
-  AnalyticsSummary 
+  AnalyticsSummary,
+  normalizeVehicleType
 } from '../types/database';
 
 export interface ApiResponse<T> {
@@ -27,11 +28,13 @@ export interface ApiResponse<T> {
 export const INITIAL_MOCK_USERS: UserProfile[] = [
   {
     id: 'usr-0511-01',
+    display_name: 'Nadia Salsabila',
     full_name: 'Nadia Salsabila',
     phone: '0812-7890-4411',
     email: 'nadia.salsabila@gmail.com',
     role: 'customer',
     status: 'active',
+    is_active: true,
     total_orders: 42,
     wallet_balance: 125000,
     created_at: '2026-05-14T10:00:00Z',
@@ -39,11 +42,13 @@ export const INITIAL_MOCK_USERS: UserProfile[] = [
   },
   {
     id: 'usr-0511-02',
+    display_name: 'Rahmat Hidayat',
     full_name: 'Rahmat Hidayat',
     phone: '0853-9081-3322',
     email: 'rahmat.hidayat@yahoo.com',
     role: 'customer',
     status: 'active',
+    is_active: true,
     total_orders: 19,
     wallet_balance: 45000,
     created_at: '2026-06-20T14:30:00Z',
@@ -51,11 +56,13 @@ export const INITIAL_MOCK_USERS: UserProfile[] = [
   },
   {
     id: 'usr-0511-03',
+    display_name: 'Siti Aminah',
     full_name: 'Siti Aminah',
     phone: '0821-4455-6677',
     email: 'siti.aminah@gmail.com',
     role: 'customer',
     status: 'active',
+    is_active: true,
     total_orders: 87,
     wallet_balance: 350000,
     created_at: '2026-03-11T09:15:00Z',
@@ -63,11 +70,13 @@ export const INITIAL_MOCK_USERS: UserProfile[] = [
   },
   {
     id: 'usr-0511-04',
+    display_name: 'Irwan Setiawan',
     full_name: 'Irwan Setiawan',
     phone: '0819-2233-1100',
     email: 'irwan.setiawan@gmail.com',
     role: 'customer',
     status: 'active',
+    is_active: true,
     total_orders: 8,
     wallet_balance: 10000,
     created_at: '2026-09-02T16:45:00Z',
@@ -75,11 +84,13 @@ export const INITIAL_MOCK_USERS: UserProfile[] = [
   },
   {
     id: 'usr-0511-05',
+    display_name: 'Bambang Pamungkas (Fraud Suspect)',
     full_name: 'Bambang Pamungkas (Fraud Suspect)',
     phone: '0877-0099-8811',
     email: 'bambang.fake@mail.com',
     role: 'customer',
     status: 'suspended',
+    is_active: false,
     total_orders: 2,
     wallet_balance: 0,
     created_at: '2026-10-01T12:00:00Z',
@@ -96,6 +107,7 @@ let memoryAudit: AuditLog[] = [...INITIAL_MOCK_AUDIT];
 
 export const api = {
   // 1. Users (Aligned to production table: user_profiles)
+  // Handles display_name (primary), full_name (alias), status, is_active, and wallet_balance
   async getUsers(): Promise<ApiResponse<UserProfile[]>> {
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
@@ -106,19 +118,54 @@ export const api = {
       if (error) {
         return { data: [], isSimulation: false, error: `Gagal memuat user_profiles: ${error.message}` };
       }
-      return { data: data || [], isSimulation: false, error: null };
+
+      const normalized: UserProfile[] = (data || []).map((row: any) => {
+        const name = row.display_name || row.full_name || 'Pengguna KAWAI';
+        const isSuspended = row.status === 'suspended' || row.is_active === false;
+        return {
+          ...row,
+          display_name: name,
+          full_name: name,
+          phone: row.phone || '-',
+          email: row.email || null,
+          role: row.role || 'customer',
+          status: isSuspended ? 'suspended' : 'active',
+          is_active: !isSuspended,
+          wallet_balance: typeof row.wallet_balance === 'number' ? row.wallet_balance : 0,
+          total_orders: typeof row.total_orders === 'number' ? row.total_orders : 0,
+          created_at: row.created_at || new Date().toISOString(),
+        };
+      });
+
+      return { data: normalized, isSimulation: false, error: null };
     }
     return { data: memoryUsers, isSimulation: true, error: null };
   },
 
   async updateUserStatus(userId: string, newStatus: 'active' | 'suspended'): Promise<ApiResponse<UserProfile>> {
     if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase
+      // First attempt: update both status and is_active
+      let { data, error } = await supabase
         .from('user_profiles')
-        .update({ status: newStatus })
+        .update({ 
+          status: newStatus,
+          is_active: newStatus === 'active'
+        })
         .eq('id', userId)
         .select()
-        .single();
+        .maybeSingle();
+
+      // If 'status' column does not exist on relation, fallback to updating is_active only
+      if (error && error.message.toLowerCase().includes('status')) {
+        const fallback = await supabase
+          .from('user_profiles')
+          .update({ is_active: newStatus === 'active' })
+          .eq('id', userId)
+          .select()
+          .maybeSingle();
+        data = fallback.data;
+        error = fallback.error;
+      }
 
       if (error) {
         return { 
@@ -127,15 +174,31 @@ export const api = {
           error: `Gagal memperbarui status pengguna: ${error.message}` 
         };
       }
-      return { data, isSimulation: false, error: null };
+
+      const raw = data || {};
+      const name = raw.display_name || raw.full_name || 'Pengguna KAWAI';
+      const updatedUser: UserProfile = {
+        ...raw,
+        id: raw.id || userId,
+        display_name: name,
+        full_name: name,
+        status: newStatus,
+        is_active: newStatus === 'active',
+        wallet_balance: typeof raw.wallet_balance === 'number' ? raw.wallet_balance : 0,
+        total_orders: typeof raw.total_orders === 'number' ? raw.total_orders : 0,
+        created_at: raw.created_at || new Date().toISOString(),
+      };
+
+      return { data: updatedUser, isSimulation: false, error: null };
     }
 
-    memoryUsers = memoryUsers.map(u => u.id === userId ? { ...u, status: newStatus } : u);
+    memoryUsers = memoryUsers.map(u => u.id === userId ? { ...u, status: newStatus, is_active: newStatus === 'active' } : u);
     const updated = memoryUsers.find(u => u.id === userId)!;
     return { data: updated, isSimulation: true, error: null };
   },
 
   // 2. Drivers (Aligned to production table: driver_profiles)
+  // Handles vehicle_plate (primary DB column) & plate_number (alias), plus motorcycle/car/van/other enums
   async getDrivers(): Promise<ApiResponse<DriverProfile[]>> {
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
@@ -146,7 +209,28 @@ export const api = {
       if (error) {
         return { data: [], isSimulation: false, error: `Gagal memuat driver_profiles: ${error.message}` };
       }
-      return { data: data || [], isSimulation: false, error: null };
+
+      const normalized: DriverProfile[] = (data || []).map((row: any) => {
+        const plate = row.vehicle_plate || row.plate_number || 'DA ----';
+        const name = row.display_name || row.full_name || 'Mitra Driver';
+        const normType = normalizeVehicleType(row.vehicle_type);
+
+        return {
+          ...row,
+          display_name: name,
+          full_name: name,
+          vehicle_plate: plate,
+          plate_number: plate,
+          vehicle_type: normType,
+          rating: typeof row.rating === 'number' ? row.rating : 5.0,
+          total_trips: typeof row.total_trips === 'number' ? row.total_trips : 0,
+          wallet_balance: typeof row.wallet_balance === 'number' ? row.wallet_balance : 0,
+          documents: row.documents || { ktp: 'pending', sim: 'pending', stnk: 'pending', skck: 'pending' },
+          created_at: row.created_at || new Date().toISOString(),
+        };
+      });
+
+      return { data: normalized, isSimulation: false, error: null };
     }
     return { data: memoryDrivers, isSimulation: true, error: null };
   },
@@ -155,10 +239,13 @@ export const api = {
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('driver_profiles')
-        .update({ status })
+        .update({ 
+          status,
+          is_active: status === 'active'
+        })
         .eq('id', driverId)
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) {
         return { 
@@ -167,7 +254,28 @@ export const api = {
           error: `Gagal memperbarui status driver: ${error.message}` 
         };
       }
-      return { data, isSimulation: false, error: null };
+
+      const raw = data || {};
+      const plate = raw.vehicle_plate || raw.plate_number || 'DA ----';
+      const name = raw.display_name || raw.full_name || 'Mitra Driver';
+
+      const updatedDriver: DriverProfile = {
+        ...raw,
+        id: raw.id || driverId,
+        display_name: name,
+        full_name: name,
+        vehicle_plate: plate,
+        plate_number: plate,
+        vehicle_type: normalizeVehicleType(raw.vehicle_type),
+        status,
+        rating: typeof raw.rating === 'number' ? raw.rating : 5.0,
+        total_trips: typeof raw.total_trips === 'number' ? raw.total_trips : 0,
+        wallet_balance: typeof raw.wallet_balance === 'number' ? raw.wallet_balance : 0,
+        documents: raw.documents || { ktp: 'pending', sim: 'pending', stnk: 'pending', skck: 'pending' },
+        created_at: raw.created_at || new Date().toISOString(),
+      };
+
+      return { data: updatedDriver, isSimulation: false, error: null };
     }
 
     memoryDrivers = memoryDrivers.map(d => d.id === driverId ? { ...d, status } : d);
@@ -183,11 +291,12 @@ export const api = {
         .from('driver_profiles')
         .update({ 
           status: 'active',
+          is_active: true,
           documents: verifiedDocs
         })
         .eq('id', driverId)
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) {
         return { 
@@ -196,7 +305,28 @@ export const api = {
           error: `Gagal verifikasi dokumen driver: ${error.message}` 
         };
       }
-      return { data, isSimulation: false, error: null };
+
+      const raw = data || {};
+      const plate = raw.vehicle_plate || raw.plate_number || 'DA ----';
+      const name = raw.display_name || raw.full_name || 'Mitra Driver';
+
+      const updatedDriver: DriverProfile = {
+        ...raw,
+        id: raw.id || driverId,
+        display_name: name,
+        full_name: name,
+        vehicle_plate: plate,
+        plate_number: plate,
+        vehicle_type: normalizeVehicleType(raw.vehicle_type),
+        status: 'active',
+        rating: typeof raw.rating === 'number' ? raw.rating : 5.0,
+        total_trips: typeof raw.total_trips === 'number' ? raw.total_trips : 0,
+        wallet_balance: typeof raw.wallet_balance === 'number' ? raw.wallet_balance : 0,
+        documents: verifiedDocs as any,
+        created_at: raw.created_at || new Date().toISOString(),
+      };
+
+      return { data: updatedDriver, isSimulation: false, error: null };
     }
 
     memoryDrivers = memoryDrivers.map(d => {
@@ -214,14 +344,20 @@ export const api = {
   },
 
   async createDriver(driverData: Partial<DriverProfile>): Promise<ApiResponse<DriverProfile>> {
+    const plate = driverData.vehicle_plate || driverData.plate_number || 'DA 0000 XX';
+    const vType = normalizeVehicleType(driverData.vehicle_type);
+    const name = driverData.display_name || driverData.full_name || 'Driver Baru';
+
     const newRecord: DriverProfile = {
       id: `drv-0511-${Date.now().toString().slice(-4)}`,
-      full_name: driverData.full_name || 'Driver Baru',
+      display_name: name,
+      full_name: name,
       phone: driverData.phone || '0812-0000-0000',
       email: driverData.email || null,
-      vehicle_type: driverData.vehicle_type || 'motor',
-      plate_number: driverData.plate_number || 'DA 0000 XX',
-      vehicle_brand: driverData.vehicle_brand || 'Honda Vario',
+      vehicle_type: vType,
+      vehicle_plate: plate,
+      plate_number: plate,
+      vehicle_brand: driverData.vehicle_brand || (vType === 'motorcycle' ? 'Honda Vario' : 'Toyota Avanza'),
       vehicle_year: driverData.vehicle_year || 2023,
       status: 'pending_verification',
       rating: 5.0,
@@ -232,16 +368,64 @@ export const api = {
     };
 
     if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase
+      // Send payload with both vehicle_plate and vehicle_type aligned to production enum
+      const dbPayload: Record<string, any> = {
+        display_name: name,
+        full_name: name,
+        phone: newRecord.phone,
+        email: newRecord.email,
+        vehicle_type: vType,
+        vehicle_plate: plate,
+        plate_number: plate,
+        vehicle_brand: newRecord.vehicle_brand,
+        vehicle_year: newRecord.vehicle_year,
+        status: 'pending_verification',
+        rating: 5.0,
+        total_trips: 0,
+        wallet_balance: 0,
+        documents: newRecord.documents,
+      };
+
+      let { data, error } = await supabase
         .from('driver_profiles')
-        .insert([newRecord])
+        .insert([dbPayload])
         .select()
-        .single();
+        .maybeSingle();
+
+      // If strict column mismatch (e.g. plate_number or full_name column not in DB), retry without aliases
+      if (error && error.message.toLowerCase().includes('column')) {
+        delete dbPayload.plate_number;
+        delete dbPayload.full_name;
+        const retry = await supabase
+          .from('driver_profiles')
+          .insert([dbPayload])
+          .select()
+          .maybeSingle();
+        data = retry.data;
+        error = retry.error;
+      }
 
       if (error) {
         return { data: newRecord, isSimulation: false, error: `Gagal menambah driver_profiles: ${error.message}` };
       }
-      return { data, isSimulation: false, error: null };
+
+      const raw = data || dbPayload;
+      const createdDriver: DriverProfile = {
+        ...raw,
+        id: raw.id || newRecord.id,
+        display_name: raw.display_name || name,
+        full_name: raw.display_name || name,
+        vehicle_plate: raw.vehicle_plate || plate,
+        plate_number: raw.vehicle_plate || plate,
+        vehicle_type: normalizeVehicleType(raw.vehicle_type),
+        rating: typeof raw.rating === 'number' ? raw.rating : 5.0,
+        total_trips: typeof raw.total_trips === 'number' ? raw.total_trips : 0,
+        wallet_balance: typeof raw.wallet_balance === 'number' ? raw.wallet_balance : 0,
+        documents: raw.documents || newRecord.documents,
+        created_at: raw.created_at || newRecord.created_at,
+      };
+
+      return { data: createdDriver, isSimulation: false, error: null };
     }
 
     memoryDrivers = [newRecord, ...memoryDrivers];
@@ -272,12 +456,12 @@ export const api = {
         .from('orders')
         .update({
           driver_id: driverId,
-          driver_name: driver?.full_name,
+          driver_name: driver?.display_name || driver?.full_name,
           status: 'assigned',
         })
         .eq('id', orderId)
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) {
         return { 
@@ -286,7 +470,7 @@ export const api = {
           error: `Gagal menugaskan driver: ${error.message}` 
         };
       }
-      return { data, isSimulation: false, error: null };
+      return { data: data || memoryOrders[0], isSimulation: false, error: null };
     }
 
     memoryOrders = memoryOrders.map(o => {
@@ -294,7 +478,7 @@ export const api = {
         return {
           ...o,
           driver_id: driverId,
-          driver_name: driver?.full_name || 'Driver Ditugaskan',
+          driver_name: driver?.display_name || driver?.full_name || 'Driver Ditugaskan',
           status: 'assigned' as OrderStatus,
         };
       }
@@ -314,7 +498,7 @@ export const api = {
         })
         .eq('id', orderId)
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) {
         return { 
@@ -323,7 +507,7 @@ export const api = {
           error: `Gagal memperbarui status order: ${error.message}` 
         };
       }
-      return { data, isSimulation: false, error: null };
+      return { data: data || memoryOrders[0], isSimulation: false, error: null };
     }
 
     memoryOrders = memoryOrders.map(o => {
@@ -363,12 +547,12 @@ export const api = {
         .update(updatedZone)
         .eq('id', updatedZone.id)
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) {
         return { data: updatedZone, isSimulation: false, error: `Gagal memperbarui service_zones: ${error.message}` };
       }
-      return { data, isSimulation: false, error: null };
+      return { data: data || updatedZone, isSimulation: false, error: null };
     }
 
     memoryZones = memoryZones.map(z => z.id === updatedZone.id ? updatedZone : z);

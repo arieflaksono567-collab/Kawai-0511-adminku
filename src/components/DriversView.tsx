@@ -18,7 +18,13 @@ import {
   Bike,
   UserCheck
 } from 'lucide-react';
-import { Driver, DriverStatus } from '../types/database';
+import { 
+  Driver, 
+  DriverStatus, 
+  getDriverName, 
+  getDriverPlate, 
+  normalizeVehicleType 
+} from '../types/database';
 
 interface DriversViewProps {
   drivers: Driver[];
@@ -50,13 +56,15 @@ export const DriversView: React.FC<DriversViewProps> = ({
   const [newVehicleYear, setNewVehicleYear] = useState('2023');
 
   const filteredDrivers = drivers.filter((driver) => {
+    const name = getDriverName(driver).toLowerCase();
+    const plate = getDriverPlate(driver).toLowerCase();
     const matchesSearch = 
-      driver.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      driver.plate_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      driver.phone.includes(searchTerm);
+      name.includes(searchTerm.toLowerCase()) ||
+      plate.includes(searchTerm.toLowerCase()) ||
+      (driver.phone ? driver.phone.includes(searchTerm) : false);
 
     const matchesStatus = statusFilter === 'all' || driver.status === statusFilter;
-    const matchesType = typeFilter === 'all' || driver.vehicle_type === typeFilter;
+    const matchesType = typeFilter === 'all' || normalizeVehicleType(driver.vehicle_type) === normalizeVehicleType(typeFilter);
 
     return matchesSearch && matchesStatus && matchesType;
   });
@@ -199,17 +207,17 @@ export const DriversView: React.FC<DriversViewProps> = ({
                       <td className="py-3.5 px-4">
                         <div className="flex items-center space-x-3">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
-                            driver.vehicle_type === 'motor' 
+                            normalizeVehicleType(driver.vehicle_type) === 'motorcycle' 
                               ? 'bg-blue-50 text-blue-600 border border-blue-200' 
                               : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
                           }`}>
-                            {driver.vehicle_type === 'motor' ? <Bike className="w-4 h-4" /> : <Car className="w-4 h-4" />}
+                            {normalizeVehicleType(driver.vehicle_type) === 'motorcycle' ? <Bike className="w-4 h-4" /> : <Car className="w-4 h-4" />}
                           </div>
                           <div>
-                            <p className="font-bold text-slate-800">{driver.full_name}</p>
+                            <p className="font-bold text-slate-800">{getDriverName(driver)}</p>
                             <p className="text-[11px] text-slate-500 flex items-center gap-1 font-mono">
                               <Phone className="w-3 h-3 text-slate-400" />
-                              {driver.phone}
+                              {driver.phone || '-'}
                             </p>
                           </div>
                         </div>
@@ -218,7 +226,7 @@ export const DriversView: React.FC<DriversViewProps> = ({
                       {/* Vehicle info */}
                       <td className="py-3.5 px-4">
                         <div className="font-mono font-bold text-slate-800">
-                          {driver.plate_number}
+                          {getDriverPlate(driver)}
                         </div>
                         <div className="text-[11px] text-slate-500">
                           {driver.vehicle_brand || 'Standar'} ({driver.vehicle_year || 2023})
@@ -326,7 +334,7 @@ export const DriversView: React.FC<DriversViewProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <FileText className="w-4 h-4 text-red-600" />
-                Audit Dokumen: {selectedDriverForDoc.full_name}
+                Audit Dokumen: {getDriverName(selectedDriverForDoc)}
               </h3>
               <button 
                 onClick={() => setSelectedDriverForDoc(null)}

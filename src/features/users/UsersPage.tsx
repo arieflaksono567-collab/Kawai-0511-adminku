@@ -14,7 +14,7 @@ import {
   CreditCard, 
   AlertTriangle 
 } from 'lucide-react';
-import { AppUser } from '../../types/database';
+import { AppUser, getUserDisplayName, getUserStatus } from '../../types/database';
 
 interface UsersPageProps {
   users: AppUser[];
@@ -32,21 +32,23 @@ export const UsersPage: React.FC<UsersPageProps> = ({
   const [selectedUserForDetail, setSelectedUserForDetail] = useState<AppUser | null>(null);
 
   const filteredUsers = users.filter((user) => {
+    const name = getUserDisplayName(user).toLowerCase();
     const matchesSearch = 
-      user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      name.includes(searchTerm.toLowerCase()) ||
       (user.phone && user.phone.includes(searchTerm)) ||
       (user.email && user.email.toLowerCase().includes(searchTerm.toLowerCase()));
     
-    const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
+    const userStatus = getUserStatus(user);
+    const matchesStatus = statusFilter === 'all' || userStatus === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  const formatIDR = (val: number) => {
+  const formatIDR = (val?: number | null) => {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
       currency: 'IDR',
       maximumFractionDigits: 0,
-    }).format(val);
+    }).format(val || 0);
   };
 
   return (
@@ -136,13 +138,13 @@ export const UsersPage: React.FC<UsersPageProps> = ({
                 filteredUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="py-3.5 px-4">
-                      <p className="font-bold text-slate-800">{user.full_name}</p>
+                      <p className="font-bold text-slate-800">{getUserDisplayName(user)}</p>
                       <span className="text-[10px] text-slate-400 font-mono">ID: {user.id}</span>
                     </td>
 
                     <td className="py-3.5 px-4 space-y-0.5">
                       <p className="font-mono text-slate-700 flex items-center gap-1">
-                        <Phone className="w-3 h-3 text-slate-400" /> {user.phone}
+                        <Phone className="w-3 h-3 text-slate-400" /> {user.phone || '-'}
                       </p>
                       {user.email && (
                         <p className="text-[11px] text-slate-500 flex items-center gap-1">
@@ -152,18 +154,23 @@ export const UsersPage: React.FC<UsersPageProps> = ({
                     </td>
 
                     <td className="py-3.5 px-4">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
-                        user.status === 'active'
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : 'bg-rose-50 text-rose-700 border-rose-200'
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${user.status === 'active' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                        {user.status === 'active' ? 'Aktif' : 'Suspended'}
-                      </span>
+                      {(() => {
+                        const userStatus = getUserStatus(user);
+                        return (
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                            userStatus === 'active'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border-rose-200'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${userStatus === 'active' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                            {userStatus === 'active' ? 'Aktif' : 'Suspended'}
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     <td className="py-3.5 px-4">
-                      <span className="font-bold text-slate-900">{user.total_orders}</span>
+                      <span className="font-bold text-slate-900">{user.total_orders ?? 0}</span>
                       <span className="text-[10px] text-slate-400 ml-1">Trip</span>
                     </td>
 
@@ -215,7 +222,7 @@ export const UsersPage: React.FC<UsersPageProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Users className="w-4 h-4 text-red-600" />
-                Profil Pengguna: {selectedUserForDetail.full_name}
+                Profil Pengguna: {getUserDisplayName(selectedUserForDetail)}
               </h3>
               <button 
                 onClick={() => setSelectedUserForDetail(null)}
@@ -232,7 +239,7 @@ export const UsersPage: React.FC<UsersPageProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Nomor Telepon:</span>
-                <span className="font-mono text-slate-800 font-semibold">{selectedUserForDetail.phone}</span>
+                <span className="font-mono text-slate-800 font-semibold">{selectedUserForDetail.phone || '-'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Email:</span>
@@ -240,11 +247,11 @@ export const UsersPage: React.FC<UsersPageProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Status Akun:</span>
-                <span className="font-bold text-slate-900 capitalize">{selectedUserForDetail.status}</span>
+                <span className="font-bold text-slate-900 capitalize">{getUserStatus(selectedUserForDetail)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Total Pesanan:</span>
-                <span className="font-bold text-slate-900">{selectedUserForDetail.total_orders} Pesanan</span>
+                <span className="font-bold text-slate-900">{selectedUserForDetail.total_orders ?? 0} Pesanan</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Saldo Dompet KAWAI:</span>

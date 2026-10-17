@@ -4,31 +4,39 @@ export type ServiceType = 'ride_motor' | 'ride_car' | 'delivery' | 'food';
 export type OrderStatus = 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
 
 // 1. user_profiles table (Production Source of Truth for Users & Admins)
+// Note: Production database primary column is display_name. full_name is supported as an alias.
 export interface UserProfile {
   id: string; // references auth.users(id)
-  full_name: string;
-  phone?: string;
+  display_name?: string | null;
+  full_name?: string | null;
+  phone?: string | null;
   email?: string | null;
   role: AdminRole;
   is_admin?: boolean;
   is_active?: boolean;
-  status: 'active' | 'suspended';
+  status?: 'active' | 'suspended';
   total_orders?: number;
-  wallet_balance: number;
+  wallet_balance?: number;
+  avatar_url?: string | null;
   created_at: string;
   updated_at?: string;
   last_order_at?: string;
 }
 
 // 2. driver_profiles table (Production Source of Truth for Drivers / Mitra)
+// Note: Production database primary column is vehicle_plate and vehicle_type enum (motorcycle, car, van, other)
+export type DriverVehicleType = 'motorcycle' | 'car' | 'van' | 'other' | 'motor' | 'mobil';
+
 export interface DriverProfile {
   id: string;
   user_id?: string | null;
-  full_name: string;
+  display_name?: string | null;
+  full_name?: string | null;
   phone: string;
   email: string | null;
-  vehicle_type: 'motor' | 'mobil';
-  plate_number: string;
+  vehicle_type: DriverVehicleType;
+  vehicle_plate?: string | null; // Production DB column
+  plate_number?: string | null;  // Backward-compatible alias
   vehicle_brand: string | null;
   vehicle_year: number | null;
   status: DriverStatus;
@@ -37,6 +45,8 @@ export interface DriverProfile {
   wallet_balance: number;
   current_lat?: number | null;
   current_lng?: number | null;
+  is_online?: boolean;
+  is_active?: boolean;
   documents: DriverDocuments;
   created_at: string;
   updated_at?: string;
@@ -174,6 +184,24 @@ export interface AuditLog {
   created_at: string;
 }
 
+// 11. system_change_runs & system_readiness_status (DevOps audit)
+export interface SystemChangeRun {
+  id: string;
+  run_name: string;
+  status: string;
+  executed_by?: string;
+  details: Record<string, any>;
+  created_at: string;
+}
+
+export interface SystemReadinessStatus {
+  id: string;
+  subsystem: string;
+  is_ready: boolean;
+  last_checked_at: string;
+  details: Record<string, any>;
+}
+
 // Backwards-Compatible Type Aliases
 export type AdminUser = UserProfile;
 export type Driver = DriverProfile;
@@ -217,3 +245,48 @@ export type AdminPageView =
   | 'deployment'
   | 'forbidden'
   | 'not_found';
+
+// ==============================================================================
+// RESILIENT ACCESSOR HELPERS FOR PRODUCTION SCHEMA ALIGNMENT
+// ==============================================================================
+
+export function getUserDisplayName(user?: Partial<UserProfile> | null): string {
+  if (!user) return 'Pengguna KAWAI';
+  return user.display_name || user.full_name || 'Pengguna KAWAI';
+}
+
+export function getUserStatus(user?: Partial<UserProfile> | null): 'active' | 'suspended' {
+  if (!user) return 'active';
+  if (user.status) return user.status;
+  if (user.is_active === false) return 'suspended';
+  return 'active';
+}
+
+export function getDriverName(driver?: Partial<DriverProfile> | null): string {
+  if (!driver) return 'Mitra Driver';
+  return driver.display_name || driver.full_name || 'Mitra Driver';
+}
+
+export function getDriverPlate(driver?: Partial<DriverProfile> | null): string {
+  if (!driver) return 'DA ----';
+  return driver.vehicle_plate || driver.plate_number || 'DA ----';
+}
+
+export function normalizeVehicleType(type?: string): 'motorcycle' | 'car' | 'van' | 'other' {
+  if (!type) return 'motorcycle';
+  const lower = type.toLowerCase();
+  if (lower === 'motor' || lower === 'motorcycle') return 'motorcycle';
+  if (lower === 'mobil' || lower === 'car') return 'car';
+  if (lower === 'van') return 'van';
+  return 'other';
+}
+
+export function getVehicleTypeLabel(type?: string): string {
+  const norm = normalizeVehicleType(type);
+  switch (norm) {
+    case 'motorcycle': return 'Motor (Roda 2)';
+    case 'car': return 'Mobil (Roda 4)';
+    case 'van': return 'Minivan / Angkutan';
+    case 'other': return 'Lainnya';
+  }
+}
