@@ -1,219 +1,189 @@
-export type AdminRole = 'superadmin' | 'admin' | 'dispatcher' | 'finance' | 'support' | 'customer';
-export type DriverStatus = 'active' | 'inactive' | 'suspended' | 'pending_verification';
-export type ServiceType = 'ride_motor' | 'ride_car' | 'delivery' | 'food';
-export type OrderStatus = 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
+// Disesuaikan dengan skema Supabase hasil audit (11 tabel)
+// Hapus kolom/field yang tidak ada di skema produksi; gunakan optional untuk nullable.
+export type Role = 'superadmin' | 'admin' | 'dispatcher' | 'finance' | 'support' | 'customer' | string;
+export type VerificationStatus = 'pending' | 'verified' | 'rejected' | string;
+export type ServiceTypeCode = string;
+export type OrderStatus =
+  | 'SEARCHING'
+  | 'ASSIGNED'
+  | 'ARRIVED'
+  | 'IN_TRIP'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | string;
 
-// 1. user_profiles table (Production Source of Truth for Users & Admins)
+// 1) user_profiles (production)
 export interface UserProfile {
   id: string; // references auth.users(id)
-  full_name: string;
-  phone?: string;
-  email?: string | null;
-  role: AdminRole;
-  is_admin?: boolean;
-  is_active?: boolean;
-  status: 'active' | 'suspended';
-  total_orders?: number;
-  wallet_balance: number;
+  display_name?: string | null;
+  phone?: string | null;
+  avatar_url?: string | null;
+  role?: Role | null;
   created_at: string;
-  updated_at?: string;
-  last_order_at?: string;
+  updated_at?: string | null;
 }
 
-// 2. driver_profiles table (Production Source of Truth for Drivers / Mitra)
+// 2) driver_profiles (production) — note: primary key is user_id in schema
 export interface DriverProfile {
-  id: string;
-  user_id?: string | null;
-  full_name: string;
-  phone: string;
-  email: string | null;
-  vehicle_type: 'motor' | 'mobil';
-  plate_number: string;
-  vehicle_brand: string | null;
-  vehicle_year: number | null;
-  status: DriverStatus;
-  rating: number;
-  total_trips: number;
-  wallet_balance: number;
+  user_id: string; // references auth.users(id)
+  vehicle_type?: string | null;
+  vehicle_brand?: string | null;
+  vehicle_model?: string | null;
+  vehicle_plate?: string | null;
+  verification_status?: VerificationStatus | null;
+  is_online?: boolean | null;
   current_lat?: number | null;
   current_lng?: number | null;
-  documents: DriverDocuments;
-  created_at: string;
-  updated_at?: string;
+  last_location_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
-export interface DriverDocuments {
-  ktp: 'pending' | 'verified' | 'rejected';
-  sim: 'pending' | 'verified' | 'rejected';
-  stnk: 'pending' | 'verified' | 'rejected';
-  skck: 'pending' | 'verified' | 'rejected';
-}
-
-export interface DriverDocumentItem {
-  id: string;
-  driver_id: string;
-  document_type: 'ktp' | 'sim' | 'stnk' | 'skck' | 'vehicle_photo';
-  file_path: string;
-  file_name?: string;
-  file_size_bytes?: number;
-  mime_type?: string;
-  status: 'pending' | 'verified' | 'rejected';
-  rejection_reason?: string | null;
-  verified_by?: string | null;
-  verified_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-// 3. service_zones table (Production Source of Truth for Regional Pricing 0511)
-export interface ServiceZone {
-  id: string;
-  name: string;
-  city: string;
-  area_code: string;
-  base_fare_motor: number;
-  per_km_motor: number;
-  base_fare_car: number;
-  per_km_car: number;
-  surge_multiplier: number;
-  is_active: boolean;
-  created_at?: string;
-  updated_at?: string;
-}
-
-// 4. orders table
+// 3) orders (production)
 export interface Order {
   id: string;
-  order_number: string;
   customer_id?: string | null;
-  customer_name: string;
-  customer_phone: string;
-  driver_id: string | null;
-  driver_name?: string;
-  service: ServiceType;
+  driver_id?: string | null;
+  service_type_id?: string | null;
   status: OrderStatus;
-  origin_address: string;
-  destination_address: string;
-  distance_km: number;
-  fare_amount: number;
-  platform_fee: number;
-  driver_net: number;
-  payment_method: 'cash' | 'qris' | 'ewallet';
-  payment_status: 'paid' | 'pending' | 'refunded';
-  cancellation_reason?: string | null;
-  created_at: string;
-  updated_at?: string;
+  pickup_address?: string | null;
+  pickup_lat?: number | null;
+  pickup_lng?: number | null;
+  dropoff_address?: string | null;
+  dropoff_lat?: number | null;
+  dropoff_lng?: number | null;
+  notes?: string | null;
+  estimated_distance_km?: number | null;
+  estimated_fare_idr?: number | null;
+  requested_at?: string | null;
+  accepted_at?: string | null;
+  arrived_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
-// 5. order_status_history table
+// 4) order_status_history
 export interface OrderStatusHistory {
   id: string;
   order_id: string;
-  status: OrderStatus;
-  notes?: string;
-  actor_id?: string;
-  created_at: string;
+  old_status?: string | null;
+  new_status?: string | null;
+  changed_by?: string | null;
+  created_at?: string | null;
 }
 
-// 6. tariff_rules table
+// 5) service_types
+export interface ServiceType {
+  id: string;
+  code?: string | null;
+  name?: string | null;
+  description?: string | null;
+  base_fare_idr?: number | null;
+  fare_per_km_idr?: number | null;
+  minimum_fare_idr?: number | null;
+  is_active?: boolean | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+// 6) service_zones
+export interface ServiceZone {
+  id: string;
+  code?: string | null;
+  name?: string | null;
+  city?: string | null;
+  region?: string | null;
+  boundary?: any | null; // GeoJSON or text depending on schema
+  is_active?: boolean | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+// 7) tariff_rules
 export interface TariffRule {
   id: string;
-  zone_id: string;
-  service_type_id: string;
-  base_fare: number;
-  rate_per_km: number;
-  minimum_fare: number;
-  surge_multiplier: number;
-  is_active: boolean;
+  service_type_id?: string | null;
+  name?: string | null;
+  version?: string | null;
+  status?: string | null;
+  currency?: string | null;
+  base_fare_idr?: number | null;
+  included_distance_km?: number | null;
+  fare_per_km_idr?: number | null;
+  included_duration_min?: number | null;
+  fare_per_minute_idr?: number | null;
+  minimum_fare_idr?: number | null;
+  booking_fee_idr?: number | null;
+  waiting_fee_per_minute_idr?: number | null;
+  waiting_grace_minutes?: number | null;
+  cancellation_fee_idr?: number | null;
+  peak_multiplier?: number | null;
+  peak_schedule?: any | null;
+  discount_rules?: any | null;
+  zone_overrides?: any | null;
+  effective_from?: string | null;
+  effective_until?: string | null;
+  created_by?: string | null;
+  published_by?: string | null;
+  published_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
-// 7. support_tickets table
-export interface SupportTicket {
-  id: string;
-  user_id?: string;
-  order_id?: string;
-  subject: string;
-  message: string;
-  status: 'open' | 'in_progress' | 'resolved' | 'closed';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  created_at: string;
-}
-
-// 8. payment_transactions table
+// 8) payment_transactions
 export interface PaymentTransaction {
   id: string;
-  order_id?: string;
-  user_id?: string;
-  driver_id?: string;
-  amount: number;
-  payment_method: string;
-  payment_status: string;
-  transaction_type: string;
-  created_at: string;
+  order_id?: string | null;
+  user_id?: string | null;
+  provider?: string | null;
+  provider_reference?: string | null;
+  method?: string | null;
+  amount_idr?: number | null;
+  status?: string | null;
+  metadata?: any | null;
+  paid_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
-// 9. admin_settings table
-export interface AdminSetting {
+// 9) support_tickets
+export interface SupportTicket {
   id: string;
-  key: string;
-  value: any;
-  description?: string;
-  updated_at: string;
+  customer_id?: string | null;
+  order_id?: string | null;
+  subject?: string | null;
+  category?: string | null;
+  description?: string | null;
+  status?: string | null;
+  priority?: string | null;
+  assigned_to?: string | null;
+  resolution?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  resolved_at?: string | null;
 }
 
-// 10. audit_logs table
+// 10) admin_settings
+export interface AdminSetting {
+  key: string;
+  value?: string | null; // keep as string (JSON encoded) to avoid exposing structure
+  description?: string | null;
+  updated_by?: string | null;
+  updated_at?: string | null;
+}
+
+// 11) audit_logs
 export interface AuditLog {
   id: string;
-  admin_id?: string;
-  admin_email: string;
+  actor_id?: string | null;
   action: string;
-  entity_type: string;
-  entity_id?: string;
-  details: Record<string, any>;
-  ip_address?: string;
-  created_at: string;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  before_data?: any | null;
+  after_data?: any | null;
+  metadata?: any | null;
+  created_at?: string | null;
 }
-
-// Backwards-Compatible Type Aliases
-export type AdminUser = UserProfile;
-export type Driver = DriverProfile;
-export type OperationalZone = ServiceZone;
-export type AppUser = UserProfile;
-
-export interface DashboardMetrics {
-  activeDriversCount: number;
-  totalDriversCount: number;
-  activeOrdersCount: number;
-  completedOrdersToday: number;
-  grossRevenueToday: number;
-  platformNetRevenueToday: number;
-  pendingVerifications: number;
-  averageRating: number;
-}
-
-export interface AnalyticsSummary {
-  period: 'today' | 'this_week' | 'this_month';
-  totalOrders: number;
-  completedRate: number;
-  totalVolumeIdr: number;
-  averageTripDistanceKm: number;
-  hourlyTrends: { hour: string; trips: number }[];
-  serviceBreakdown: { service: ServiceType; count: number; volumeIdr: number }[];
-}
-
-export type AdminPageView =
-  | 'dashboard'
-  | 'users'
-  | 'drivers'
-  | 'orders'
-  | 'analytics'
-  | 'zones'
-  | 'payments'
-  | 'services'
-  | 'support'
-  | 'security'
-  | 'settings'
-  | 'profile'
-  | 'deployment'
-  | 'forbidden'
-  | 'not_found';
