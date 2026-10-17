@@ -216,6 +216,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Helpers for Status Pill
   const renderStatusPill = (status: string) => {
     switch (status) {
+      case 'searching':
       case 'pending':
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-600 border border-blue-200">
@@ -227,9 +228,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-200">
             <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
-            Diterima Driver
+            Driver Ditugaskan
           </span>
         );
+      case 'arrived':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+            Driver Tiba
+          </span>
+        );
+      case 'in_trip':
       case 'in_progress':
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">

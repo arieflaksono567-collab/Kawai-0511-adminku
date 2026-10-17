@@ -63,7 +63,7 @@ export const ZonesView: React.FC<ZonesViewProps> = ({ zones, onUpdateZone }) => 
                     <span className="w-2 h-2 rounded-full bg-red-600" />
                     {zone.name}
                   </h3>
-                  <span className="text-[11px] text-slate-400 font-mono">Kode Area: {zone.area_code} ({zone.city})</span>
+                  <span className="text-[11px] text-slate-400 font-mono">Kode Zona: {zone.code || zone.area_code || '0511'} ({zone.city})</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${

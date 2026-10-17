@@ -1,69 +1,59 @@
 # KAWAI 0511 Admin Panel — Project Status
 
-**Repository:** `arieflaksono567-collab/Kawai-0511-adminku` (Mirror: `Kawai-0511-admin`)  
+**Repository:** `arieflaksono567-collab/Kawai-0511-adminku`  
 **Target Supabase Project Reference:** `rbfnjgrnojvzvrpyryms`  
 **Active Working Branch:** `fix/production-schema-alignment`  
 **Target Release Branch:** `main`  
+**Target Hosting:** Cloudflare Pages  
 **Last Updated:** 2026-10-17  
 
 ---
 
-## 1. Status Penyelarasan Skema Database (Production Schema Alignment)
+## 1. Status Konsolidasi 13 Tabel Produksi Supabase
 
-| Entitas Database Aktual | Status Penyelarasan | File Pemetaan Kode & Verifikasi |
+| Entitas Database Aktif | Status Penyelarasan | Struktur Kolom Resmi & Penyesuaian Kode |
 | :--- | :--- | :--- |
-| **`user_profiles`** | **VERIFIED** | Menggantikan `users` & `admin_users`. Kolom utama `display_name` & alias `full_name`. Dipetakan pada `src/types/database.ts`, `src/lib/api.ts`, `UsersPage.tsx`, dan `AuthContext.tsx`. |
-| **`driver_profiles`** | **VERIFIED** | Menggantikan `drivers`. Kolom utama `vehicle_plate`, enum armada `motorcycle`, `car`, `van`, `other`. Dipetakan pada `src/types/database.ts`, `src/lib/api.ts`, dan `DriversView.tsx`. |
-| **`service_zones`** | **VERIFIED** | Menggantikan `operational_zones`. Dipetakan pada `src/types/database.ts`, `src/lib/supabase.ts`, dan `src/lib/api.ts`. |
-| **`orders`** | **VERIFIED** | Dipetakan pada `src/types/database.ts`, `src/lib/api.ts`, dan `src/components/OrdersView.tsx`. |
-| **`service_types`** | **VERIFIED** | Dipetakan pada `src/types/database.ts` dan `src/features/services/ServicesPage.tsx`. |
-| **`tariff_rules`** | **VERIFIED** | Dipetakan pada `src/types/database.ts` dan `src/components/ZonesView.tsx`. |
-| **`order_status_history`** | **VERIFIED** | Dipetakan pada `src/types/database.ts` dan `src/features/orders/OrderDetailModal.tsx`. |
-| **`support_tickets`** | **VERIFIED** | Dipetakan pada `src/types/database.ts` dan `src/features/support/SupportPage.tsx`. |
-| **`payment_transactions`** | **VERIFIED** | Dipetakan pada `src/types/database.ts` dan `src/features/payments/PaymentsPage.tsx`. |
-| **`admin_settings`** | **VERIFIED** | Dipetakan pada `src/types/database.ts` dan `src/features/settings/SettingsPage.tsx`. |
-| **`audit_logs`** | **VERIFIED** | Dipetakan pada `src/types/database.ts`, `src/lib/api.ts`, dan `src/components/SecurityAuditView.tsx`. |
-| **`system_change_runs`** & **`system_readiness_status`** | **VERIFIED** | Pemantauan kesiapan pipeline DevOps dipetakan pada `src/types/database.ts`. |
+| **`public.user_profiles`** | **VERIFIED (100%)** | `id`, `display_name`, `phone`, `avatar_url`, `role` (`customer`, `driver`, `admin`), `created_at`, `updated_at`. Tidak ada kolom `full_name` atau `status` di DB aktif; penangguhan ditandai sebagai kebutuhan skema terpisah. |
+| **`public.driver_profiles`** | **VERIFIED (100%)** | PK: `user_id` &rarr; `user_profiles.id`. Kolom: `vehicle_type`, `vehicle_brand`, `vehicle_model`, `vehicle_plate`, `verification_status` (`pending`, `approved`, `rejected`, `suspended`), `is_online`, `current_lat`, `current_lng`, `last_location_at`. Relasi nama/phone diambil dari `user_profiles`. |
+| **`public.orders`** | **VERIFIED (100%)** | `id`, `customer_id`, `driver_id`, `service_type_id`, `status` (`searching`, `assigned`, `arrived`, `in_trip`, `completed`, `cancelled`), `pickup_address`, `dropoff_address`, `estimated_distance_km`, `estimated_fare_idr`, `requested_at`, `accepted_at`, `arrived_at`, `started_at`, `completed_at`, `cancelled_at`. Tidak mengirim `driver_name` atau `cancellation_reason` ke tabel ini. |
+| **`public.order_status_history`** | **VERIFIED (100%)** | `id`, `order_id`, `previous_status`, `new_status`, `changed_by`, `notes`, `created_at`. Alasan pembatalan dan log dispatch dicatat pada kolom `notes`. |
+| **`public.service_types`** | **VERIFIED (100%)** | `id`, `code`, `name`, `description`, `base_fare_idr`, `fare_per_km_idr`, `minimum_fare_idr`, `is_active`. Dipetakan pada katalog 4 pilar (`ride_motor`, `ride_car`, `delivery`, `food`). |
+| **`public.service_zones`** | **VERIFIED (100%)** | `id`, `code`, `name`, `city`, `region`, `boundary` (JSONB), `is_active`. Menggunakan `code` (bukan `area_code`). |
+| **`public.tariff_rules`** | **VERIFIED (100%)** | `id`, `service_type_id`, `name`, `version`, `status` (`draft`, `active`, `archived`), `currency`, `base_fare_idr`, `included_distance_km`, `fare_per_km_idr`, `minimum_fare_idr`, `booking_fee_idr`, `waiting_fee_per_minute_idr`, `waiting_grace_minutes`, `cancellation_fee_idr`, `peak_multiplier`, `peak_schedule`, `discount_rules`, `zone_overrides`. |
+| **`public.payment_transactions`** | **VERIFIED (100%)** | `id`, `order_id`, `user_id`, `provider`, `provider_reference`, `method`, `amount_idr`, `status`, `metadata`, `paid_at`. Saldo dompet tidak dimanipulasi secara buatan. |
+| **`public.support_tickets`** | **VERIFIED (100%)** | `id`, `customer_id`, `order_id`, `subject`, `category`, `description`, `status`, `priority`, `assigned_to`, `resolution`, `created_at`, `updated_at`, `resolved_at`. |
+| **`public.admin_settings`** | **VERIFIED (100%)** | `key` (PK), `value` (JSONB), `description`, `updated_by`, `updated_at`. |
+| **`public.audit_logs`** | **VERIFIED (100%)** | `id`, `actor_id`, `action`, `entity_type`, `entity_id`, `before_data`, `after_data`, `metadata`, `created_at`. Bersifat append-only via RLS. |
+| **`public.system_change_runs`** | **VERIFIED (100%)** | `id`, `provider`, `repository`, `branch_name`, `commit_sha`, `event_name`, `overall_status`, `report`. Dilindungi policy RLS khusus admin. |
+| **`public.system_readiness_status`** | **VERIFIED (100%)** | `system_key` (PK), `status`, `last_change_run_id`, `supabase_project_ref`, `repository`, `message`, `checks`. Dilindungi policy RLS khusus admin. |
 
 ---
 
-## 2. Status Modul & Desain Visual Referensi (KAWAI 0511 UI)
+## 2. Status Modul & Antarmuka UI KAWAI 0511
 
-| Modul / Komponen UI | Status | Keterangan & Bukti Desain |
+| Modul | Status | Bukti Kode & Implementasi |
 | :--- | :--- | :--- |
-| **Identitas & Maskot KAWAI 0511** | **VERIFIED** | Komponen vektor `KawaiLogo.tsx` dan maskot monyet `KawaiMascot.tsx` ("Layanan Urang Banua") di sidebar dan login. |
-| **Header Atas (Top Bar)** | **VERIFIED** | `src/components/Header.tsx`. Search bar universal, pill status pesanan & driver aktif, bell notifikasi popover, badge superadmin, modal Cloudflare/DB. |
-| **Sidebar Kiri (Navigation)** | **VERIFIED** | `src/components/Sidebar.tsx`. Menu vertikal aktif (latar merah muda/rose-50, border-r-2 merah KAWAI), badge notifikasi verifikasi driver, maskot KAWAI di bagian bawah. |
-| **1. Ringkasan (Dashboard)** | **VERIFIED** | `src/components/DashboardView.tsx`. 4 KPI Cards (Pesanan Hari Ini, Total Omset IDR, Mitra Aktif, Pengguna Baru), SVG Trend Chart interaktif, Quick Dispatch bar, Tabel Pesanan Terbaru, Kartu Zona Operasional Banjarmasin, & Kartu Status Sistem (ShieldCheck). |
-| **2. Pesanan (Orders)** | **VERIFIED** | `src/components/OrdersView.tsx`. Live order stream, penugasan driver, pembatalan terotorisasi, filter armada/status. |
-| **3. Pengguna (Users)** | **VERIFIED** | `src/features/users/UsersPage.tsx`. Kolom `display_name`, nomor telepon, email, trips, dompet, modal detail, dan penanganan suspensi akun. |
-| **4. Mitra Driver (Drivers)** | **VERIFIED** | `src/components/DriversView.tsx`. Kolom `vehicle_plate`, armada motor/mobil, modal audit berkas KTP/SIM/STNK/SKCK, pendaftaran mitra baru. |
-| **5. Tarif & Zona (Zones)** | **VERIFIED** | `src/components/ZonesView.tsx`. Zonasi Banjarmasin (Pusat Kota, Barat, Timur, Utara, Selatan, Banjarbaru/Bandara), surge pricing multiplier. |
-| **6. Pembayaran (Payments)** | **VERIFIED** | `src/features/payments/PaymentsPage.tsx`. Rekonsiliasi transaksi, komisi platform KAWAI, payout driver. |
-| **7. Layanan (Services)** | **VERIFIED** | `src/features/services/ServicesPage.tsx`. Katalog 4 pilar (KAWAI Roda 2, KAWAI Mobil, KAWAI Kurir/Kilat, KAWAI Food). |
-| **8. Dukungan (Support)** | **VERIFIED** | `src/features/support/SupportPage.tsx`. Helpdesk pelanggan & mitra, nomor darurat SOS Banjarmasin (0511). |
-| **9. Audit Log (Security)** | **VERIFIED** | `src/components/SecurityAuditView.tsx`. Jejak forensik perubahan data, IP address, timestamp WITA. |
-| **10. Pengaturan (Settings)** | **VERIFIED** | `src/features/settings/SettingsPage.tsx`. Konfigurasi komisi platform (%), SOS dispatch, batas penarikan saldo dompet mitra. |
-| **11. Profil Administrator** | **VERIFIED** | `src/features/profile/ProfilePage.tsx`. Identitas admin, cakupan izin RBAC, detail sesi, tombol logout aman. |
+| **1. Login Admin** | **VERIFIED** | `src/features/auth/LoginPage.tsx` & `AuthContext.tsx`. Verifikasi role terhadap `user_profiles.role = 'admin'`. Demo mode dimatikan di produksi. |
+| **2. Ringkasan (Dashboard)** | **VERIFIED** | `src/components/DashboardView.tsx`. Sesuai referensi visual KAWAI 0511. 4 kartu metrik, chart tren interaktif, recent orders table, zona operasional, dan status sistem. |
+| **3. Pengguna** | **VERIFIED** | `src/features/users/UsersPage.tsx`. Kolom `display_name`, phone, pencarian, dan penanganan fitur suspensi dengan notifikasi status belum didukung DB. |
+| **4. Mitra Driver** | **VERIFIED** | `src/components/DriversView.tsx`. Join `driver_profiles` & `user_profiles`, armada motor/mobil, kolom `vehicle_plate`, perbaruan `verification_status`. |
+| **5. Pesanan** | **VERIFIED** | `src/components/OrdersView.tsx` & `OrderDetailModal.tsx`. Status alur resmi: `searching`, `assigned`, `arrived`, `in_trip`, `completed`, `cancelled`. |
+| **6. Tarif & Zona** | **VERIFIED** | `src/components/ZonesView.tsx`. Zonasi Banjarmasin 0511 menggunakan `code`, tarif dasar motor/mobil, dan surge pricing multiplier. |
+| **7. Pembayaran** | **VERIFIED** | `src/features/payments/PaymentsPage.tsx`. Rekonsiliasi `payment_transactions`, komisi 15%, dan transparansi payout driver. |
+| **8. Layanan** | **VERIFIED** | `src/features/services/ServicesPage.tsx`. 4 pilar katalog `service_types` (KAWAI Motor, Mobil, Kurir, Kuliner). |
+| **9. Dukungan** | **VERIFIED** | `src/features/support/SupportPage.tsx`. Helpdesk `support_tickets`, hotline SOS darurat 0511. |
+| **10. Audit Log** | **VERIFIED** | `src/components/SecurityAuditView.tsx`. Forensik data aktivitas administrator pada `audit_logs`. |
+| **11. Pengaturan** | **VERIFIED** | `src/features/settings/SettingsPage.tsx`. Konfigurasi platform pada `admin_settings`. |
+| **12. Profil Administrator** | **VERIFIED** | `src/features/profile/ProfilePage.tsx`. Menampilkan display name admin, email auth, dan izin RBAC. |
+| **13. Status Deployment** | **VERIFIED** | `src/components/DeploymentStatusView.tsx`. Spesifikasi Cloudflare Pages dan koneksi Supabase `rbfnjgrnojvzvrpyryms`. |
 
 ---
 
-## 3. Status Keamanan & DevSecOps
+## 3. Hasil Pengujian & Kesiapan Build
 
-| Aspek Keamanan | Status | Penilaian & Mitigasi |
+| Pipeline | Status | Keterangan |
 | :--- | :--- | :--- |
-| **Zero Secret Leak** | **VERIFIED** | Tidak ada API key, service_role key, token, atau sandi yang tersimpan di source code atau `.env.example`. |
-| **Demo Bypass di Produksi** | **VERIFIED** | `isDemoModeAllowed` bernilai `false` secara default di produksi. Login demo ditolak keras jika dijalankan di produksi. |
-| **Row Level Security (RLS)** | **VERIFIED** | Seluruh tabel produksi diisolasi dengan RLS dan fungsi security definer `is_admin()`. |
-| **Pemisahan Aplikasi User/Driver**| **VERIFIED** | Aplikasi pengguna dan pengemudi tetap berjalan terpisah di Vercel tanpa interferensi kode atau konfigurasi. |
-
----
-
-## 4. Status Build, Test & CI
-
-| Pipeline | Status | Bukti Eksekusi |
-| :--- | :--- | :--- |
-| **Automated Tests (`npm test`)** | **VERIFIED** | 9/9 tes lulus dalam ~260ms (Redirects, Headers, Production Schema, Zero Secrets, 11 Views, API Layer, CI Workflow, Brand Assets, Reference Design Layout). |
-| **Typecheck Lint (`npm run lint`)** | **VERIFIED** | `tsc --noEmit` lulus dengan 0 error. |
-| **Production Build (`npm run build`)** | **VERIFIED** | Vite build sukses menghasilkan direktori `dist/` siap deploy ke Cloudflare Pages. |
-| **GitHub Actions Workflow** | **VERIFIED** | Berkas `.github/workflows/ci.yml` terkonfigurasi untuk validasi otomatis pada pull request. |
+| **`npm test`** | **10/10 PASSED (100%)** | Validasi SPA redirects, security headers, schema alignment, zero secret leak, 11 admin pages, API layer, CI workflow, brand assets, dashboard layout, dan 13 official tables. |
+| **`npm run lint`** | **0 ERRORS (PASSED)** | `tsc --noEmit` lulus bersih dengan pengecekan ketat tanpa error tipe. |
+| **`npm run build`** | **SUCCESS (PASSED)** | Bundel Vite production dihasilkan di direktori `dist/` siap deploy ke Cloudflare Pages. |
+| **`compile_applet`** | **PASSED** | Verifikasi lingkungan runtime sukses. |

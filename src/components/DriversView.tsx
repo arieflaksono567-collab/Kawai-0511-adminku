@@ -294,24 +294,24 @@ export const DriversView: React.FC<DriversViewProps> = ({
                         <div className="flex items-center justify-end gap-1.5">
                           {driver.status === 'suspended' ? (
                             <button
-                              onClick={() => onUpdateDriverStatus(driver.id, 'active', `Mengaktifkan kembali akun driver ${driver.full_name}`)}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-[11px] transition-colors"
+                              onClick={() => onUpdateDriverStatus(driver.user_id || driver.id, 'active', `Mengaktifkan kembali akun driver ${getDriverName(driver)}`)}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-[11px] transition-colors cursor-pointer"
                               title="Cabut suspensi & aktifkan"
                             >
                               Aktifkan
                             </button>
                           ) : driver.status === 'active' ? (
                             <button
-                              onClick={() => onUpdateDriverStatus(driver.id, 'suspended', `Menangguhkan akun driver ${driver.full_name} untuk investigasi`)}
-                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-medium rounded-lg text-[11px] transition-colors"
+                              onClick={() => onUpdateDriverStatus(driver.user_id || driver.id, 'suspended', `Menangguhkan akun driver ${getDriverName(driver)} untuk investigasi`)}
+                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-medium rounded-lg text-[11px] transition-colors cursor-pointer"
                               title="Tangguhkan akun"
                             >
                               Suspend
                             </button>
                           ) : (
                             <button
-                              onClick={() => onApproveDocuments(driver.id)}
-                              className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-[11px] transition-colors shadow-2xs"
+                              onClick={() => onApproveDocuments(driver.user_id || driver.id)}
+                              className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-[11px] transition-colors shadow-2xs cursor-pointer"
                             >
                               Setujui Mitra
                             </button>
@@ -376,7 +376,7 @@ export const DriversView: React.FC<DriversViewProps> = ({
               </button>
               <button
                 onClick={() => {
-                  onApproveDocuments(selectedDriverForDoc.id);
+                  onApproveDocuments(selectedDriverForDoc.user_id || selectedDriverForDoc.id);
                   setSelectedDriverForDoc(null);
                 }}
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-sm"

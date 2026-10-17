@@ -137,3 +137,30 @@ test('9. Verify DashboardView components matching reference design layout', () =
   assert.ok(dashContent.includes('Semua sistem berfungsi dengan baik'), 'System health check card');
 });
 
+test('10. Verify 13 official Supabase production tables in schema.sql', () => {
+  const schemaPath = path.resolve(process.cwd(), 'supabase/schema.sql');
+  assert.ok(fs.existsSync(schemaPath), 'schema.sql must exist');
+  const sql = fs.readFileSync(schemaPath, 'utf-8');
+
+  const requiredTables = [
+    'public.user_profiles',
+    'public.driver_profiles',
+    'public.orders',
+    'public.order_status_history',
+    'public.service_types',
+    'public.service_zones',
+    'public.tariff_rules',
+    'public.payment_transactions',
+    'public.support_tickets',
+    'public.admin_settings',
+    'public.audit_logs',
+    'public.system_change_runs',
+    'public.system_readiness_status',
+  ];
+
+  for (const table of requiredTables) {
+    assert.ok(sql.includes(table), `schema.sql must define ${table}`);
+    assert.ok(sql.includes(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`), `RLS must be enabled on ${table}`);
+  }
+});
+

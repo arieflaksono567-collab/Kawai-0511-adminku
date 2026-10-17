@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured, isDemoModeAllowed } from '../../lib/supabase';
-import { AdminUser, AdminRole } from '../../types/database';
+import { AdminUser, AdminRole, DbUserProfile } from '../../types/database';
 
 interface AuthContextType {
   user: AdminUser | null;
@@ -24,7 +24,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initAuth = async () => {
       setIsLoading(true);
 
-      // Restore demo session ONLY if demo mode is explicitly allowed (e.g. DEV or VITE_ENABLE_DEMO=true)
+      // Restore demo session ONLY if demo mode is explicitly allowed in development
       if (isDemoModeAllowed) {
         const savedDemo = sessionStorage.getItem('kawai_demo_admin_user');
         if (savedDemo) {
@@ -39,7 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
       } else {
-        // Enforce cleanup if previously saved in development
+        // Enforce cleanup in production
         sessionStorage.removeItem('kawai_demo_admin_user');
       }
 
@@ -49,35 +49,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const { data: { session }, error: sessionError } = await supabase.auth.getSession();
           if (session?.user && !sessionError) {
             // Check authorization against production table: user_profiles
+            // Schema has columns: id, display_name, phone, avatar_url, role, created_at, updated_at
             const { data: profileRecord, error: profileError } = await supabase
               .from('user_profiles')
-              .select('*')
+              .select('id, display_name, phone, avatar_url, role, created_at, updated_at')
               .eq('id', session.user.id)
-              .single();
+              .maybeSingle();
 
             const isAuthorizedAdmin = Boolean(
               profileRecord && 
               !profileError && 
-              profileRecord.status !== 'suspended' &&
-              profileRecord.is_active !== false &&
-              (
-                profileRecord.is_admin === true ||
-                ['superadmin', 'admin', 'dispatcher', 'finance', 'support'].includes(profileRecord.role)
-              )
+              (profileRecord.role === 'admin' || profileRecord.role === 'superadmin')
             );
 
             if (isAuthorizedAdmin && profileRecord) {
-              const assignedRole = (profileRecord.role === 'admin' ? 'superadmin' : profileRecord.role) as AdminRole;
+              const name = profileRecord.display_name || session.user.email?.split('@')[0] || 'Administrator';
               setUser({
                 id: session.user.id,
-                email: session.user.email || profileRecord.email || '',
-                full_name: profileRecord.full_name || 'Admin KAWAI',
-                role: assignedRole,
+                email: session.user.email || '',
+                display_name: name,
+                full_name: name,
+                role: 'admin',
                 is_admin: true,
-                is_active: profileRecord.is_active ?? true,
-                status: profileRecord.status || 'active',
-                wallet_balance: profileRecord.wallet_balance || 0,
+                avatar_url: profileRecord.avatar_url,
                 created_at: profileRecord.created_at,
+                updated_at: profileRecord.updated_at,
               });
               setIsDemoSession(false);
             } else {
@@ -128,21 +124,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // Check admin status against production table: user_profiles
+      // Schema columns: id, display_name, phone, avatar_url, role, created_at, updated_at
       const { data: profileRecord, error: roleError } = await supabase
         .from('user_profiles')
-        .select('*')
+        .select('id, display_name, phone, avatar_url, role, created_at, updated_at')
         .eq('id', data.user.id)
-        .single();
+        .maybeSingle();
 
       const isAuthorizedAdmin = Boolean(
         profileRecord && 
         !roleError && 
-        profileRecord.status !== 'suspended' &&
-        profileRecord.is_active !== false &&
-        (
-          profileRecord.is_admin === true ||
-          ['superadmin', 'admin', 'dispatcher', 'finance', 'support'].includes(profileRecord.role)
-        )
+        (profileRecord.role === 'admin' || profileRecord.role === 'superadmin')
       );
 
       if (!isAuthorizedAdmin || !profileRecord) {
@@ -153,17 +145,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       }
 
-      const assignedRole = (profileRecord.role === 'admin' ? 'superadmin' : profileRecord.role) as AdminRole;
+      const name = profileRecord.display_name || data.user.email?.split('@')[0] || 'Administrator';
       const adminUser: AdminUser = {
         id: data.user.id,
-        email: data.user.email || profileRecord.email || '',
-        full_name: profileRecord.full_name,
-        role: assignedRole,
+        email: data.user.email || '',
+        display_name: name,
+        full_name: name,
+        role: 'admin',
         is_admin: true,
-        is_active: profileRecord.is_active ?? true,
-        status: profileRecord.status || 'active',
-        wallet_balance: profileRecord.wallet_balance || 0,
+        avatar_url: profileRecord.avatar_url,
         created_at: profileRecord.created_at,
+        updated_at: profileRecord.updated_at,
       };
 
       setUser(adminUser);
@@ -176,32 +168,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginAsDemoAdmin = (role: AdminRole): { success: boolean; error?: string } => {
-    // Strictly prevent demo bypass in production
     if (!isDemoModeAllowed) {
       return {
         success: false,
-        error: 'Mode evaluasi / demo dinonaktifkan pada lingkungan produksi demi keamanan data.'
+        error: 'Mode demo dinonaktifkan di lingkungan produksi. Akses ditolak.'
       };
     }
 
-    const roleNames: Record<AdminRole, string> = {
-      superadmin: 'Super Admin KAWAI',
-      admin: 'Administrator Operasional',
-      dispatcher: 'Operator Dispatcher',
-      finance: 'Admin Finansial & Omset',
-      support: 'Customer Care Support',
-      customer: 'Pengguna Standar',
-    };
-
     const demoUser: AdminUser = {
-      id: `demo-${role}-${Date.now()}`,
-      email: `${role}.demo@kawai0511.id`,
-      full_name: roleNames[role] || 'Admin KAWAI',
-      role,
+      id: `usr-0511-demo-${role}`,
+      email: `${role}.demo@kawai0511.com`,
+      display_name: `Administrator Demo (${role.toUpperCase()})`,
+      full_name: `Administrator Demo (${role.toUpperCase()})`,
+      role: role,
       is_admin: true,
-      is_active: true,
-      status: 'active',
-      wallet_balance: 0,
       created_at: new Date().toISOString(),
     };
 
@@ -211,20 +191,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
-  const logout = async () => {
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase.auth.signOut();
-      } catch (err) {}
+  const logout = async (): Promise<void> => {
+    if (isDemoSession) {
+      sessionStorage.removeItem('kawai_demo_admin_user');
+      setUser(null);
+      setIsDemoSession(false);
+      return;
     }
-    sessionStorage.removeItem('kawai_demo_admin_user');
+
+    if (isSupabaseConfigured && supabase) {
+      await supabase.auth.signOut();
+    }
     setUser(null);
     setIsDemoSession(false);
   };
 
   const hasRole = (requiredRoles: AdminRole[]): boolean => {
     if (!user) return false;
-    if (user.role === 'superadmin' || user.role === 'admin') return true; // Superadmin/admin has full permission
+    // In production database, role is 'admin', which has full administrative access
+    if (user.role === 'admin' || user.role === 'superadmin') return true;
     return requiredRoles.includes(user.role);
   };
 
@@ -237,14 +222,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       loginWithPassword,
       loginAsDemoAdmin,
       logout,
-      hasRole
+      hasRole,
     }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = (): AuthContextType => {
+export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');

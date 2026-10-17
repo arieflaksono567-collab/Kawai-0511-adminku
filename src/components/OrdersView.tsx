@@ -106,11 +106,12 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-slate-700 focus:outline-none"
           >
             <option value="all">Semua Status</option>
-            <option value="pending">Mencari Driver (Pending)</option>
-            <option value="assigned">Driver Menuju Lokasi</option>
-            <option value="in_progress">Sedang Diantar (In-Progress)</option>
-            <option value="completed">Selesai</option>
-            <option value="cancelled">Dibatalkan</option>
+            <option value="searching">Mencari Driver (Searching)</option>
+            <option value="assigned">Driver Ditugaskan (Assigned)</option>
+            <option value="arrived">Driver Tiba (Arrived)</option>
+            <option value="in_trip">Dalam Perjalanan (In-Trip)</option>
+            <option value="completed">Selesai (Completed)</option>
+            <option value="cancelled">Dibatalkan (Cancelled)</option>
           </select>
         </div>
       </div>
@@ -123,17 +124,23 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </div>
         ) : (
           filteredOrders.map((order) => {
-            const statusBadgeClasses = {
+            const statusBadgeClasses: Record<string, string> = {
               pending: 'bg-blue-50 text-blue-700 border-blue-200 animate-pulse',
+              searching: 'bg-blue-50 text-blue-700 border-blue-200 animate-pulse',
               assigned: 'bg-teal-50 text-teal-700 border-teal-200',
+              arrived: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+              in_trip: 'bg-amber-50 text-amber-700 border-amber-200 font-bold',
               in_progress: 'bg-amber-50 text-amber-700 border-amber-200 font-bold',
               completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
               cancelled: 'bg-rose-50 text-rose-700 border-rose-200',
             };
 
-            const statusText = {
+            const statusText: Record<string, string> = {
               pending: 'Mencari Driver',
+              searching: 'Mencari Driver',
               assigned: 'Driver Ditugaskan',
+              arrived: 'Driver Tiba',
+              in_trip: 'Sedang Mengantar',
               in_progress: 'Sedang Mengantar',
               completed: 'Trip Selesai',
               cancelled: 'Dibatalkan',
