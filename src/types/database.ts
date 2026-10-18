@@ -243,7 +243,7 @@ export type OrderStatus = 'pending' | 'searching' | 'assigned' | 'arrived' | 'in
 export interface UserProfile {
   id: string;
   display_name?: string | null;
-  full_name?: string | null; // Resilient alias for UI
+  full_name?: string | null;
   phone?: string | null;
   email?: string | null;
   avatar_url?: string | null;
@@ -267,18 +267,18 @@ export interface DriverDocuments {
 
 /** UI Presentation Model for driver_profiles joined with user_profiles */
 export interface DriverProfile {
-  id: string; // user_id or unique identifier
+  id: string;
   user_id?: string | null;
   display_name?: string | null;
-  full_name?: string | null; // Resilient alias
+  full_name?: string | null;
   phone: string;
   email: string | null;
   vehicle_type: DriverVehicleType;
   vehicle_brand: string | null;
   vehicle_model?: string | null;
   vehicle_year: number | null;
-  vehicle_plate?: string | null; // Production DB column
-  plate_number?: string | null;  // Resilient alias
+  vehicle_plate?: string | null;
+  plate_number?: string | null;
   status: DriverStatus;
   verification_status?: DbVerificationStatus;
   rating: number;
