@@ -125,12 +125,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     ];
   }, [zones]);
 
-  // Recent Orders (Display actual orders or clean fallback rows)
+  // Recent Orders (Display actual orders or clean fallback rows only in evaluation mode)
   const recentOrdersList = useMemo(() => {
     if (orders && orders.length > 0) {
       return orders.slice(0, 5);
     }
-    // Fallback rows matching reference design
+    if (isSupabaseConfigured) {
+      // Never display fake orders when connected to Supabase database
+      return [];
+    }
+    // Fallback rows matching reference design for offline/dev evaluation only
     return [
       {
         id: 'ord-1',
@@ -342,6 +346,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </button>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Status Transparansi Data: Live vs Evaluasi */}
+      <div className={`p-3.5 rounded-xl border flex items-center justify-between text-xs ${
+        isSupabaseConfigured 
+          ? 'bg-emerald-50/70 border-emerald-200 text-emerald-800'
+          : 'bg-amber-50/70 border-amber-200 text-amber-900'
+      }`}>
+        <div className="flex items-center gap-2.5">
+          {isSupabaseConfigured ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+          )}
+          <span>
+            {isSupabaseConfigured ? (
+              <>
+                <strong>Database Terverifikasi:</strong> Terhubung ke Supabase PostgreSQL (<code className="font-mono font-bold">rbfnjgrnojvzvrpyryms</code>). Seluruh statistik dan tabel berasal dari data aktif.
+              </>
+            ) : (
+              <>
+                <strong>Mode Evaluasi Lokal:</strong> Menampilkan data simulasi terisolasi. Sambungkan <code className="font-mono font-bold">VITE_SUPABASE_URL</code> dan <code className="font-mono font-bold">VITE_SUPABASE_ANON_KEY</code> untuk membaca data langsung.
+              </>
+            )}
+          </span>
         </div>
       </div>
 
@@ -666,7 +696,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {recentOrdersList.map((order) => (
+                  {recentOrdersList.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-slate-400 font-medium">
+                        {isLoading ? 'Memuat pesanan...' : 'Belum ada data pesanan pada database Supabase.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    recentOrdersList.map((order) => (
                     <tr 
                       key={order.id} 
                       onClick={() => onSelectOrder?.(order as Order)}
@@ -694,7 +731,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         {formatTimeOnly(order.created_at)}
                       </td>
                     </tr>
-                  ))}
+                  )))}
                 </tbody>
               </table>
             </div>

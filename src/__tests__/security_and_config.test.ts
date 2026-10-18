@@ -164,3 +164,33 @@ test('10. Verify 13 official Supabase production tables in schema.sql', () => {
   }
 });
 
+test('11. Verify package-lock.json and GitHub Actions cache reproducibility', () => {
+  const lockPath = path.resolve(process.cwd(), 'package-lock.json');
+  assert.ok(fs.existsSync(lockPath), 'package-lock.json must exist in root for actions/setup-node npm cache');
+  
+  const lockContent = JSON.parse(fs.readFileSync(lockPath, 'utf-8'));
+  assert.strictEqual(lockContent.name, 'kawai-0511-admin', 'package-lock.json name must match package.json');
+  assert.ok(lockContent.lockfileVersion >= 2, 'Must be valid modern lockfile');
+
+  const ciPath = path.resolve(process.cwd(), '.github/workflows/ci.yml');
+  const ciContent = fs.readFileSync(ciPath, 'utf-8');
+  assert.ok(ciContent.includes("cache: 'npm'"), 'CI workflow must use npm cache');
+  assert.ok(ciContent.includes('npm ci'), 'CI workflow must use npm ci for reproducible installs');
+});
+
+test('12. Verify active Supabase enum types and data transparency in types & views', () => {
+  const dbTypesPath = path.resolve(process.cwd(), 'src/types/database.ts');
+  const typesContent = fs.readFileSync(dbTypesPath, 'utf-8');
+  
+  // Official vehicle types
+  assert.ok(typesContent.includes("'motorcycle' | 'car' | 'van' | 'other'"), 'DbVehicleType must match active schema');
+  // Official order statuses
+  assert.ok(typesContent.includes("'searching' | 'assigned' | 'arrived' | 'in_trip' | 'completed' | 'cancelled'"), 'DbOrderStatus must match active schema');
+
+  // Verify DashboardView transparency banner exists
+  const dashPath = path.resolve(process.cwd(), 'src/components/DashboardView.tsx');
+  const dashContent = fs.readFileSync(dashPath, 'utf-8');
+  assert.ok(dashContent.includes('Status Transparansi Data: Live vs Evaluasi'), 'DashboardView must have transparency banner');
+  assert.ok(dashContent.includes('Belum ada data pesanan pada database Supabase'), 'DashboardView must handle zero orders without fake data');
+});
+
