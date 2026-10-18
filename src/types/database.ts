@@ -11,7 +11,7 @@
 export type DbUserRole = 'customer' | 'driver' | 'admin';
 
 export interface DbUserProfile {
-  id: string; // uuid, references auth.users(id)
+  id: string;
   display_name: string | null;
   phone: string | null;
   avatar_url: string | null;
@@ -21,11 +21,11 @@ export interface DbUserProfile {
 }
 
 /** 2. public.driver_profiles */
-export type DbVehicleType = 'motorcycle' | 'car' | 'van' | 'other';
+export type DbVehicleType = 'motor' | 'mobil';
 export type DbVerificationStatus = 'pending' | 'approved' | 'rejected' | 'suspended';
 
 export interface DbDriverProfile {
-  user_id: string; // uuid (Primary Key, references user_profiles.id)
+  user_id: string;
   vehicle_type: DbVehicleType | null;
   vehicle_brand: string | null;
   vehicle_model: string | null;
@@ -40,13 +40,13 @@ export interface DbDriverProfile {
 }
 
 /** 3. public.orders */
-export type DbOrderStatus = 'searching' | 'assigned' | 'arrived' | 'in_trip' | 'completed' | 'cancelled';
+export type DbOrderStatus = 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
 
 export interface DbOrder {
-  id: string; // uuid
-  customer_id: string; // uuid -> user_profiles.id
-  driver_id: string | null; // uuid -> driver_profiles.user_id
-  service_type_id: string; // uuid -> service_types.id
+  id: string;
+  customer_id: string;
+  driver_id: string | null;
+  service_type_id: string;
   status: DbOrderStatus;
   pickup_address: string;
   pickup_lat: number;
@@ -69,19 +69,19 @@ export interface DbOrder {
 
 /** 4. public.order_status_history */
 export interface DbOrderStatusHistory {
-  id: string; // uuid
-  order_id: string; // uuid -> orders.id
+  id: string;
+  order_id: string;
   previous_status: string | null;
   new_status: string;
-  changed_by: string | null; // uuid -> user_profiles.id / auth.users
+  changed_by: string | null;
   notes: string | null;
   created_at: string;
 }
 
 /** 5. public.service_types */
 export interface DbServiceType {
-  id: string; // uuid
-  code: string; // 'ride_motor', 'ride_car', 'food', 'delivery'
+  id: string;
+  code: string;
   name: string;
   description: string | null;
   base_fare_idr: number;
@@ -94,12 +94,12 @@ export interface DbServiceType {
 
 /** 6. public.service_zones */
 export interface DbServiceZone {
-  id: string; // uuid
-  code: string; // '0511_BJ_CENTER', etc. (not area_code)
+  id: string;
+  code: string;
   name: string;
   city: string;
   region: string;
-  boundary: Record<string, any>; // jsonb
+  boundary: Record<string, any>;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -109,8 +109,8 @@ export interface DbServiceZone {
 export type DbTariffStatus = 'draft' | 'active' | 'archived';
 
 export interface DbTariffRule {
-  id: string; // uuid
-  service_type_id: string; // uuid -> service_types.id
+  id: string;
+  service_type_id: string;
   name: string;
   version: number;
   status: DbTariffStatus;
@@ -140,14 +140,14 @@ export interface DbTariffRule {
 
 /** 8. public.payment_transactions */
 export interface DbPaymentTransaction {
-  id: string; // uuid
-  order_id: string; // uuid -> orders.id
-  user_id: string; // uuid -> user_profiles.id
+  id: string;
+  order_id: string;
+  user_id: string;
   provider: string;
   provider_reference: string | null;
   method: string;
   amount_idr: number;
-  status: string; // 'pending' | 'success' | 'failed' | 'refunded'
+  status: string;
   metadata: Record<string, any> | null;
   paid_at: string | null;
   created_at: string;
@@ -156,15 +156,15 @@ export interface DbPaymentTransaction {
 
 /** 9. public.support_tickets */
 export interface DbSupportTicket {
-  id: string; // uuid
-  customer_id: string; // uuid -> user_profiles.id
-  order_id: string | null; // uuid -> orders.id
+  id: string;
+  customer_id: string;
+  order_id: string | null;
   subject: string;
   category: string;
   description: string;
-  status: string; // 'open' | 'in_progress' | 'resolved' | 'closed'
-  priority: string; // 'low' | 'medium' | 'high' | 'urgent'
-  assigned_to: string | null; // uuid -> user_profiles.id
+  status: string;
+  priority: string;
+  assigned_to: string | null;
   resolution: string | null;
   created_at: string;
   updated_at: string;
@@ -173,17 +173,17 @@ export interface DbSupportTicket {
 
 /** 10. public.admin_settings */
 export interface DbAdminSetting {
-  key: string; // text (PK)
-  value: any; // jsonb
+  key: string;
+  value: any;
   description: string | null;
-  updated_by: string | null; // uuid
+  updated_by: string | null;
   updated_at: string;
 }
 
 /** 11. public.audit_logs */
 export interface DbAuditLog {
-  id: string; // uuid
-  actor_id: string | null; // uuid -> user_profiles.id
+  id: string;
+  actor_id: string | null;
   action: string;
   entity_type: string;
   entity_id: string | null;
@@ -195,7 +195,7 @@ export interface DbAuditLog {
 
 /** 12. public.system_change_runs */
 export interface DbSystemChangeRun {
-  id: string; // uuid
+  id: string;
   provider: string;
   repository: string;
   branch_name: string;
@@ -218,7 +218,7 @@ export interface DbSystemChangeRun {
 
 /** 13. public.system_readiness_status */
 export interface DbSystemReadinessStatus {
-  system_key: string; // text (PK)
+  system_key: string;
   status: string;
   last_change_run_id: string | null;
   supabase_project_ref: string;
@@ -235,11 +235,10 @@ export interface DbSystemReadinessStatus {
 
 export type AdminRole = 'superadmin' | 'admin' | 'dispatcher' | 'finance' | 'support' | 'customer' | 'driver';
 export type DriverStatus = 'active' | 'inactive' | 'suspended' | 'pending_verification';
-export type DriverVehicleType = DbVehicleType | 'motor' | 'mobil';
+export type DriverVehicleType = DbVehicleType;
 export type ServiceType = 'ride_motor' | 'ride_car' | 'delivery' | 'food';
-export type OrderStatus = 'pending' | 'searching' | 'assigned' | 'arrived' | 'in_trip' | 'in_progress' | 'completed' | 'cancelled';
+export type OrderStatus = 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
 
-/** UI Presentation Model for user_profiles */
 export interface UserProfile {
   id: string;
   display_name?: string | null;
@@ -250,7 +249,7 @@ export interface UserProfile {
   role: AdminRole;
   is_admin?: boolean;
   is_active?: boolean;
-  status?: 'active' | 'suspended';
+  status?: 'active' | 'suspended' | 'inactive';
   total_orders?: number;
   wallet_balance?: number;
   created_at: string;
@@ -265,7 +264,6 @@ export interface DriverDocuments {
   skck: 'pending' | 'verified' | 'rejected';
 }
 
-/** UI Presentation Model for driver_profiles joined with user_profiles */
 export interface DriverProfile {
   id: string;
   user_id?: string | null;
@@ -294,7 +292,6 @@ export interface DriverProfile {
   updated_at?: string;
 }
 
-/** UI Presentation Model for service_zones */
 export interface ServiceZone {
   id: string;
   code?: string;
@@ -313,7 +310,6 @@ export interface ServiceZone {
   updated_at?: string;
 }
 
-/** UI Presentation Model for orders joined with relations */
 export interface Order {
   id: string;
   order_number: string;
@@ -470,7 +466,6 @@ export interface SystemReadinessStatus {
   updated_at?: string;
 }
 
-// Backwards-Compatible Type Aliases
 export type AdminUser = UserProfile;
 export type Driver = DriverProfile;
 export type OperationalZone = ServiceZone;
@@ -514,10 +509,6 @@ export type AdminPageView =
   | 'forbidden'
   | 'not_found';
 
-// ------------------------------------------------------------------------------
-// RESILIENT ACCESSOR HELPERS FOR PRODUCTION SCHEMA ALIGNMENT
-// ------------------------------------------------------------------------------
-
 export function getUserDisplayName(user?: Partial<UserProfile | DbUserProfile> | null): string {
   if (!user) return 'Pengguna KAWAI';
   return user.display_name || (user as any).full_name || 'Pengguna KAWAI';
@@ -541,20 +532,18 @@ export function getDriverPlate(driver?: Partial<DriverProfile | DbDriverProfile>
 }
 
 export function normalizeVehicleType(type?: string | null): DbVehicleType {
-  if (!type) return 'motorcycle';
+  if (!type) return 'motor';
   const lower = type.toLowerCase();
-  if (lower === 'motor' || lower === 'motorcycle') return 'motorcycle';
-  if (lower === 'mobil' || lower === 'car') return 'car';
-  if (lower === 'van') return 'van';
-  return 'other';
+  if (lower === 'motor' || lower === 'motorcycle') return 'motor';
+  if (lower === 'mobil' || lower === 'car') return 'mobil';
+  return 'motor';
 }
 
 export function getVehicleTypeLabel(type?: string | null): string {
   const norm = normalizeVehicleType(type);
   switch (norm) {
-    case 'motorcycle': return 'Motor (Roda 2)';
-    case 'car': return 'Mobil (Roda 4)';
-    case 'van': return 'Minivan / Angkutan';
-    case 'other': return 'Lainnya';
+    case 'motor': return 'Motor';
+    case 'mobil': return 'Mobil';
+    default: return 'Motor';
   }
 }
