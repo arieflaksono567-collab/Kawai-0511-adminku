@@ -9,6 +9,7 @@
 
 /** 1. public.user_profiles */
 export type DbUserRole = 'customer' | 'driver' | 'admin';
+export type DbUserStatus = 'active' | 'inactive' | 'suspended';
 
 export interface DbUserProfile {
   id: string; // uuid, references auth.users(id)
@@ -16,6 +17,8 @@ export interface DbUserProfile {
   phone: string | null;
   avatar_url: string | null;
   role: DbUserRole;
+  status: DbUserStatus;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -71,7 +74,8 @@ export interface DbOrder {
 export interface DbOrderStatusHistory {
   id: string; // uuid
   order_id: string; // uuid -> orders.id
-  previous_status: string | null;
+  old_status: string | null; // Canonical column name confirmed by active DB
+  previous_status?: string | null; // Compatibility alias
   new_status: string;
   changed_by: string | null; // uuid -> user_profiles.id / auth.users
   notes: string | null;
@@ -226,6 +230,184 @@ export interface DbSystemReadinessStatus {
   message: string | null;
   checks: Record<string, any> | null;
   checked_at: string;
+  updated_at: string;
+}
+
+// ------------------------------------------------------------------------------
+// PART 1B: OFFICIAL GOVERNANCE SCHEMA TYPES (KIGS — governance.*)
+// ------------------------------------------------------------------------------
+
+/** 14. governance.canonical_terms */
+export type GovernanceTermCategory = 
+  | 'database_object' 
+  | 'field' 
+  | 'role' 
+  | 'workflow_status' 
+  | 'business_concept' 
+  | 'api_contract' 
+  | 'architecture' 
+  | 'ui_label' 
+  | 'other';
+
+export type GovernanceTermStatus = 'approved' | 'deprecated' | 'review_required';
+
+export interface DbCanonicalTerm {
+  id: string; // uuid
+  term_key: string;
+  canonical_label: string;
+  definition: string;
+  category: GovernanceTermCategory;
+  source_kind: string;
+  source_ref: string | null;
+  status: GovernanceTermStatus;
+  version_added: string;
+  metadata: Record<string, any> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 15. governance.term_proposals */
+export type GovernanceProposalStatus = 
+  | 'pending_review' 
+  | 'approved' 
+  | 'rejected' 
+  | 'withdrawn' 
+  | 'implemented' 
+  | 'rolled_back';
+
+export interface DbTermProposal {
+  id: string; // uuid
+  proposed_key: string;
+  proposed_label: string;
+  proposed_definition: string;
+  category: GovernanceTermCategory;
+  reason: string;
+  existing_equivalents: string[] | null;
+  impact_assessment: Record<string, any> | null;
+  status: GovernanceProposalStatus;
+  requested_by: string | null;
+  reviewed_by: string | null;
+  reviewer_decision: string | null;
+  decision_at: string | null;
+  registry_version_at_submission: string;
+  resulting_registry_version: string | null;
+  related_change_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 16. governance.change_requests */
+export type GovernanceTaskType = 
+  | 'FOUNDATION' 
+  | 'IMPLEMENTATION' 
+  | 'INTEGRATION' 
+  | 'BUGFIX' 
+  | 'RECONCILIATION' 
+  | 'SECURITY' 
+  | 'VERIFICATION' 
+  | 'DEPLOYMENT' 
+  | 'ROLLBACK' 
+  | 'OTHER';
+
+export type GovernanceChangeRequestStatus = 
+  | 'queued' 
+  | 'validating' 
+  | 'blocked_unknown_term' 
+  | 'blocked_contract_drift' 
+  | 'awaiting_user_approval' 
+  | 'approved' 
+  | 'executing' 
+  | 'passed' 
+  | 'failed' 
+  | 'cancelled' 
+  | 'rollback_pending' 
+  | 'rolled_back' 
+  | 'rollback_failed';
+
+export interface DbChangeRequest {
+  id: string; // uuid
+  task_key: string;
+  task_type: GovernanceTaskType;
+  repository: string;
+  branch_name: string;
+  base_commit_sha: string;
+  proposed_commit_sha: string | null;
+  registry_version: string;
+  schema_fingerprint: string | null;
+  scope: string[] | null;
+  manifest: Record<string, any> | null;
+  status: GovernanceChangeRequestStatus;
+  gate_result: Record<string, any> | null;
+  created_by: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 17. governance.audit_events */
+export interface DbAuditEvent {
+  id: string; // uuid
+  event_type: string;
+  actor: string;
+  change_request_id: string | null;
+  term_proposal_id: string | null;
+  rollback_event_id: string | null;
+  registry_version: string;
+  details: Record<string, any> | null;
+  created_at: string;
+}
+
+/** 18. governance.rollback_events */
+export type GovernanceRollbackStatus = 
+  | 'pending' 
+  | 'assessing' 
+  | 'approved' 
+  | 'executing' 
+  | 'verified' 
+  | 'failed' 
+  | 'manual_intervention_required' 
+  | 'cancelled';
+
+export interface DbRollbackEvent {
+  id: string; // uuid
+  change_request_id: string;
+  trigger_reason: string;
+  target_registry_version: string;
+  previous_commit_sha: string;
+  target_commit_sha: string;
+  migration_strategy: string | null;
+  data_recovery_strategy: string | null;
+  deployment_strategy: string | null;
+  status: GovernanceRollbackStatus;
+  affected_resources: string[] | null;
+  verification_results: Record<string, any> | null;
+  initiated_by: string | null;
+  reviewed_by: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+/** 19. governance.registry_state */
+export type GovernanceSyncStatus = 
+  | 'NOT_VERIFIED' 
+  | 'IN_SYNC' 
+  | 'DRIFT_DETECTED' 
+  | 'SYNC_FAILED' 
+  | 'REVIEW_REQUIRED';
+
+export type GovernanceWriteGateMode = 'FAIL_CLOSED' | 'AUDIT_ONLY' | 'ENFORCED';
+
+export interface DbRegistryState {
+  singleton: boolean;
+  registry_version: string;
+  schema_fingerprint: string;
+  last_schema_sync_at: string | null;
+  sync_status: GovernanceSyncStatus;
+  write_gate_mode: GovernanceWriteGateMode;
   updated_at: string;
 }
 

@@ -194,3 +194,34 @@ test('12. Verify active Supabase enum types and data transparency in types & vie
   assert.ok(dashContent.includes('Belum ada data pesanan pada database Supabase'), 'DashboardView must handle zero orders without fake data');
 });
 
+test('13. Verify 6 official Governance tables (KIGS) and old_status schema synchronization', () => {
+  const schemaPath = path.resolve(process.cwd(), 'supabase/schema.sql');
+  const sql = fs.readFileSync(schemaPath, 'utf-8');
+
+  const governanceTables = [
+    'governance.canonical_terms',
+    'governance.term_proposals',
+    'governance.change_requests',
+    'governance.audit_events',
+    'governance.rollback_events',
+    'governance.registry_state',
+  ];
+
+  for (const table of governanceTables) {
+    assert.ok(sql.includes(table), `schema.sql must define ${table}`);
+    assert.ok(sql.includes(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`), `RLS must be enabled on ${table}`);
+  }
+
+  // Verify old_status in order_status_history
+  assert.ok(sql.includes('old_status TEXT'), 'order_status_history must contain old_status column');
+
+  // Verify types in src/types/database.ts
+  const dbTypesPath = path.resolve(process.cwd(), 'src/types/database.ts');
+  const typesContent = fs.readFileSync(dbTypesPath, 'utf-8');
+  assert.ok(typesContent.includes('DbCanonicalTerm'), 'types/database.ts must define DbCanonicalTerm');
+  assert.ok(typesContent.includes('DbChangeRequest'), 'types/database.ts must define DbChangeRequest');
+  assert.ok(typesContent.includes('DbRegistryState'), 'types/database.ts must define DbRegistryState');
+  assert.ok(typesContent.includes('old_status: string | null'), 'DbOrderStatusHistory must define old_status');
+});
+
+

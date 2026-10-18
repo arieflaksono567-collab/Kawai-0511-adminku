@@ -13,19 +13,25 @@
 
 | Entitas Database Aktif | Status Penyelarasan | Struktur Kolom Resmi & Penyesuaian Kode |
 | :--- | :--- | :--- |
-| **`public.user_profiles`** | **VERIFIED (100%)** | `id`, `display_name`, `phone`, `avatar_url`, `role` (`customer`, `driver`, `admin`), `created_at`, `updated_at`. Tidak ada kolom `full_name` atau `status` di DB aktif; penangguhan ditandai sebagai kebutuhan skema terpisah. |
+| **`public.user_profiles`** | **VERIFIED (100%)** | `id`, `display_name`, `phone`, `avatar_url`, `role` (`customer`, `driver`, `admin`), `status` (`active`, `inactive`, `suspended`), `is_active`, `created_at`, `updated_at`. Kolom `status` dan `is_active` tersinkronisasi. Perubahan role dilindungi trigger `prevent_user_self_promotion()`. |
 | **`public.driver_profiles`** | **VERIFIED (100%)** | PK: `user_id` &rarr; `user_profiles.id`. Kolom: `vehicle_type`, `vehicle_brand`, `vehicle_model`, `vehicle_plate`, `verification_status` (`pending`, `approved`, `rejected`, `suspended`), `is_online`, `current_lat`, `current_lng`, `last_location_at`. Relasi nama/phone diambil dari `user_profiles`. |
-| **`public.orders`** | **VERIFIED (100%)** | `id`, `customer_id`, `driver_id`, `service_type_id`, `status` (`searching`, `assigned`, `arrived`, `in_trip`, `completed`, `cancelled`), `pickup_address`, `dropoff_address`, `estimated_distance_km`, `estimated_fare_idr`, `requested_at`, `accepted_at`, `arrived_at`, `started_at`, `completed_at`, `cancelled_at`. Tidak mengirim `driver_name` atau `cancellation_reason` ke tabel ini. |
-| **`public.order_status_history`** | **VERIFIED (100%)** | `id`, `order_id`, `previous_status`, `new_status`, `changed_by`, `notes`, `created_at`. Alasan pembatalan dan log dispatch dicatat pada kolom `notes`. |
+| **`public.orders`** | **VERIFIED (100%)** | `id`, `customer_id`, `driver_id`, `service_type_id`, `status` (`searching`, `assigned`, `arrived`, `in_trip`, `completed`, `cancelled`), `pickup_address`, `dropoff_address`, `estimated_distance_km`, `estimated_fare_idr`, `requested_at`, `accepted_at`, `arrived_at`, `started_at`, `completed_at`, `cancelled_at`. Menggunakan kolom resmi `estimated_fare_idr`. |
+| **`public.order_status_history`** | **VERIFIED (100%)** | `id`, `order_id`, `old_status`, `new_status`, `changed_by`, `created_at`. Kolom resmi status lama adalah `old_status` (dengan alias `previous_status` untuk kompatibilitas). |
 | **`public.service_types`** | **VERIFIED (100%)** | `id`, `code`, `name`, `description`, `base_fare_idr`, `fare_per_km_idr`, `minimum_fare_idr`, `is_active`. Dipetakan pada katalog 4 pilar (`ride_motor`, `ride_car`, `delivery`, `food`). |
 | **`public.service_zones`** | **VERIFIED (100%)** | `id`, `code`, `name`, `city`, `region`, `boundary` (JSONB), `is_active`. Menggunakan `code` (bukan `area_code`). |
 | **`public.tariff_rules`** | **VERIFIED (100%)** | `id`, `service_type_id`, `name`, `version`, `status` (`draft`, `active`, `archived`), `currency`, `base_fare_idr`, `included_distance_km`, `fare_per_km_idr`, `minimum_fare_idr`, `booking_fee_idr`, `waiting_fee_per_minute_idr`, `waiting_grace_minutes`, `cancellation_fee_idr`, `peak_multiplier`, `peak_schedule`, `discount_rules`, `zone_overrides`. |
-| **`public.payment_transactions`** | **VERIFIED (100%)** | `id`, `order_id`, `user_id`, `provider`, `provider_reference`, `method`, `amount_idr`, `status`, `metadata`, `paid_at`. Saldo dompet tidak dimanipulasi secara buatan. |
-| **`public.support_tickets`** | **VERIFIED (100%)** | `id`, `customer_id`, `order_id`, `subject`, `category`, `description`, `status`, `priority`, `assigned_to`, `resolution`, `created_at`, `updated_at`, `resolved_at`. |
+| **`public.payment_transactions`** | **VERIFIED (100%)** | `id`, `order_id`, `user_id`, `amount_idr`, `status`, `paid_at`. |
+| **`public.support_tickets`** | **VERIFIED (100%)** | `id`, `customer_id`, `order_id`, `subject`, `category`, `description`, `status`, `priority`, `assigned_to`, `created_at`, `updated_at`. |
 | **`public.admin_settings`** | **VERIFIED (100%)** | `key` (PK), `value` (JSONB), `description`, `updated_by`, `updated_at`. |
-| **`public.audit_logs`** | **VERIFIED (100%)** | `id`, `actor_id`, `action`, `entity_type`, `entity_id`, `before_data`, `after_data`, `metadata`, `created_at`. Bersifat append-only via RLS. |
-| **`public.system_change_runs`** | **VERIFIED (100%)** | `id`, `provider`, `repository`, `branch_name`, `commit_sha`, `event_name`, `overall_status`, `report`. Dilindungi policy RLS khusus admin. |
-| **`public.system_readiness_status`** | **VERIFIED (100%)** | `system_key` (PK), `status`, `last_change_run_id`, `supabase_project_ref`, `repository`, `message`, `checks`. Dilindungi policy RLS khusus admin. |
+| **`public.audit_logs`** | **VERIFIED (100%)** | `id`, `actor_id`, `action`, `entity_type`, `metadata`. Bersifat append-only via RLS. |
+| **`public.system_change_runs`** | **VERIFIED (100%)** | `id`, `branch_name`, `commit_sha`, `event_name`, `external_run_id`, `overall_status`, `install_status`, `test_status`, `report`. Dilindungi policy RLS khusus admin. |
+| **`public.system_readiness_status`** | **VERIFIED (100%)** | `system_key` (PK), `status`, `last_change_run_id`, `supabase_project_ref`, `repository`, `message`, `checks`, `checked_at`. Dilindungi policy RLS khusus admin. |
+| **`governance.canonical_terms`** | **VERIFIED (100%)** | `id`, `term_key`, `canonical_label`, `definition`, `category`, `source_kind`, `source_ref`, `status`, `version_added`, `metadata`. |
+| **`governance.term_proposals`** | **VERIFIED (100%)** | `id`, `proposed_key`, `proposed_label`, `proposed_definition`, `category`, `reason`, `existing_equivalents`, `status`. |
+| **`governance.change_requests`** | **VERIFIED (100%)** | `id`, `task_key`, `task_type`, `repository`, `branch_name`, `base_commit_sha`, `proposed_commit_sha`, `registry_version`, `status`, `gate_result`. |
+| **`governance.audit_events`** | **VERIFIED (100%)** | `id`, `event_type`, `actor`, `change_request_id`, `term_proposal_id`, `rollback_event_id`, `registry_version`, `details`. |
+| **`governance.rollback_events`** | **VERIFIED (100%)** | `id`, `change_request_id`, `trigger_reason`, `target_registry_version`, `previous_commit_sha`, `target_commit_sha`, `status`. |
+| **`governance.registry_state`** | **VERIFIED (100%)** | `singleton`, `registry_version`, `schema_fingerprint`, `last_schema_sync_at`, `sync_status`, `write_gate_mode`. |
 
 ---
 
@@ -51,9 +57,7 @@
 
 ## 3. Hasil Pengujian & Kesiapan Build
 
-| Pipeline | Status | Keterangan |
-| :--- | :--- | :--- |
-| **`npm test`** | **12/12 PASSED (100%)** | Validasi SPA redirects, security headers, schema alignment, zero secret leak, 11 admin pages, API layer, CI workflow, brand assets, dashboard layout, 13 official tables, package-lock.json reproducible cache, dan enum types alignment. |
+| **`npm test`** | **13/13 PASSED (100%)** | Validasi SPA redirects, security headers, schema alignment, zero secret leak, 11 admin pages, API layer, CI workflow, brand assets, dashboard layout, 13 official tables, package-lock.json reproducible cache, enum types alignment, serta 6 tabel governance (KIGS) & old_status. |
 | **`npm run lint`** | **0 ERRORS (PASSED)** | `tsc --noEmit` lulus bersih dengan pengecekan ketat tanpa error tipe. |
 | **`npm run build`** | **SUCCESS (PASSED)** | Bundel Vite production dihasilkan di direktori `dist/` siap deploy ke Cloudflare Pages. |
 | **`compile_applet`** | **PASSED** | Verifikasi lingkungan runtime sukses. |
@@ -61,6 +65,7 @@
 ---
 
 ## 4. KAWAI Intelligent Governance System (KIGS)
-- **Kamus Istilah Kanonis:** Terdokumentasi pada `.ai/CANONICAL_TERMS.md`.
+- **Kamus Istilah Kanonis:** Terdokumentasi lengkap pada `.ai/CANONICAL_TERMS.md`.
 - **Panduan Standar AI Workflow:** Terdokumentasi pada `.ai/GOVERNANCE_REGISTRY.md`.
-- **Status Database Aktif:** 13 tabel publik terverifikasi 100%. Tabel skema `governance.*` ditandai **BELUM TERVERIFIKASI** secara runtime hingga ada koneksi langsung ke Supabase produksi.
+- **Inventaris Database:** 19 tabel resmi (13 schema public + 6 schema governance) terdefinisi secara kanonis di `src/types/database.ts`, `src/lib/api.ts`, dan `supabase/schema.sql`.
+

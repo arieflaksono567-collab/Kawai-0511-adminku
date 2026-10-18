@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS public.user_profiles (
     phone TEXT,
     avatar_url TEXT,
     role TEXT NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'driver', 'admin')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended')),
+    is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
@@ -140,6 +142,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
 CREATE TABLE IF NOT EXISTS public.order_status_history (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
+    old_status TEXT,
     previous_status TEXT,
     new_status TEXT NOT NULL,
     changed_by UUID REFERENCES public.user_profiles(id),
@@ -320,3 +323,148 @@ CREATE POLICY "Admins can read system readiness status"
     ON public.system_readiness_status FOR SELECT
     TO authenticated
     USING (public.is_admin());
+
+-- ==============================================================================
+-- SCHEMA GOVERNANCE (KIGS — Kawai Intelligent Governance System)
+-- ==============================================================================
+CREATE SCHEMA IF NOT EXISTS governance;
+
+-- 14. governance.canonical_terms
+CREATE TABLE IF NOT EXISTS governance.canonical_terms (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    term_key TEXT NOT NULL UNIQUE,
+    canonical_label TEXT NOT NULL,
+    definition TEXT NOT NULL,
+    category TEXT NOT NULL CHECK (category IN (
+        'database_object', 'field', 'role', 'workflow_status',
+        'business_concept', 'api_contract', 'architecture', 'ui_label', 'other'
+    )),
+    source_kind TEXT NOT NULL,
+    source_ref TEXT,
+    status TEXT NOT NULL DEFAULT 'approved' CHECK (status IN ('approved', 'deprecated', 'review_required')),
+    version_added TEXT NOT NULL DEFAULT '1.0.0',
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+-- 15. governance.term_proposals
+CREATE TABLE IF NOT EXISTS governance.term_proposals (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    proposed_key TEXT NOT NULL,
+    proposed_label TEXT NOT NULL,
+    proposed_definition TEXT NOT NULL,
+    category TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    existing_equivalents TEXT[],
+    impact_assessment JSONB,
+    status TEXT NOT NULL DEFAULT 'pending_review' CHECK (status IN (
+        'pending_review', 'approved', 'rejected', 'withdrawn', 'implemented', 'rolled_back'
+    )),
+    requested_by UUID REFERENCES public.user_profiles(id),
+    reviewed_by UUID REFERENCES public.user_profiles(id),
+    reviewer_decision TEXT,
+    decision_at TIMESTAMPTZ,
+    registry_version_at_submission TEXT NOT NULL,
+    resulting_registry_version TEXT,
+    related_change_id UUID,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+-- 16. governance.change_requests
+CREATE TABLE IF NOT EXISTS governance.change_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    task_key TEXT NOT NULL,
+    task_type TEXT NOT NULL CHECK (task_type IN (
+        'FOUNDATION', 'IMPLEMENTATION', 'INTEGRATION', 'BUGFIX',
+        'RECONCILIATION', 'SECURITY', 'VERIFICATION', 'DEPLOYMENT', 'ROLLBACK', 'OTHER'
+    )),
+    repository TEXT NOT NULL,
+    branch_name TEXT NOT NULL,
+    base_commit_sha TEXT NOT NULL,
+    proposed_commit_sha TEXT,
+    registry_version TEXT NOT NULL,
+    schema_fingerprint TEXT,
+    scope TEXT[],
+    manifest JSONB,
+    status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN (
+        'queued', 'validating', 'blocked_unknown_term', 'blocked_contract_drift',
+        'awaiting_user_approval', 'approved', 'executing', 'passed', 'failed',
+        'cancelled', 'rollback_pending', 'rolled_back', 'rollback_failed'
+    )),
+    gate_result JSONB,
+    created_by UUID REFERENCES public.user_profiles(id),
+    approved_by UUID REFERENCES public.user_profiles(id),
+    approved_at TIMESTAMPTZ,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+-- 17. governance.audit_events
+CREATE TABLE IF NOT EXISTS governance.audit_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_type TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    change_request_id UUID REFERENCES governance.change_requests(id) ON DELETE SET NULL,
+    term_proposal_id UUID REFERENCES governance.term_proposals(id) ON DELETE SET NULL,
+    rollback_event_id UUID,
+    registry_version TEXT NOT NULL,
+    details JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+-- 18. governance.rollback_events
+CREATE TABLE IF NOT EXISTS governance.rollback_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    change_request_id UUID NOT NULL REFERENCES governance.change_requests(id) ON DELETE CASCADE,
+    trigger_reason TEXT NOT NULL,
+    target_registry_version TEXT NOT NULL,
+    previous_commit_sha TEXT NOT NULL,
+    target_commit_sha TEXT NOT NULL,
+    migration_strategy TEXT,
+    data_recovery_strategy TEXT,
+    deployment_strategy TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+        'pending', 'assessing', 'approved', 'executing', 'verified',
+        'failed', 'manual_intervention_required', 'cancelled'
+    )),
+    affected_resources TEXT[],
+    verification_results JSONB,
+    initiated_by UUID REFERENCES public.user_profiles(id),
+    reviewed_by UUID REFERENCES public.user_profiles(id),
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+-- 19. governance.registry_state
+CREATE TABLE IF NOT EXISTS governance.registry_state (
+    singleton BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton = true),
+    registry_version TEXT NOT NULL DEFAULT '1.0.0',
+    schema_fingerprint TEXT NOT NULL,
+    last_schema_sync_at TIMESTAMPTZ,
+    sync_status TEXT NOT NULL DEFAULT 'NOT_VERIFIED' CHECK (sync_status IN (
+        'NOT_VERIFIED', 'IN_SYNC', 'DRIFT_DETECTED', 'SYNC_FAILED', 'REVIEW_REQUIRED'
+    )),
+    write_gate_mode TEXT NOT NULL DEFAULT 'AUDIT_ONLY' CHECK (write_gate_mode IN (
+        'FAIL_CLOSED', 'AUDIT_ONLY', 'ENFORCED'
+    )),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+ALTER TABLE governance.canonical_terms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE governance.term_proposals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE governance.change_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE governance.audit_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE governance.rollback_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE governance.registry_state ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Admins have full access to governance tables"
+    ON governance.canonical_terms FOR ALL
+    TO authenticated
+    USING (public.is_admin())
+    WITH CHECK (public.is_admin());
+

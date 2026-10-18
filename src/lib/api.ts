@@ -127,7 +127,7 @@ export const api = {
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('user_profiles')
-        .select('id, display_name, phone, avatar_url, role, created_at, updated_at')
+        .select('id, display_name, phone, avatar_url, role, status, is_active, created_at, updated_at')
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -136,6 +136,7 @@ export const api = {
 
       const normalized: UserProfile[] = (data || []).map((row: DbUserProfile) => {
         const name = row.display_name || 'Pengguna KAWAI';
+        const userStatus = (row.status || (row.is_active === false ? 'suspended' : 'active')) as 'active' | 'suspended';
         return {
           id: row.id,
           display_name: name,
@@ -144,8 +145,8 @@ export const api = {
           email: null, // Note: email is in auth.users, not in public.user_profiles
           avatar_url: row.avatar_url,
           role: row.role || 'customer',
-          status: 'active', // Note: status column is not in user_profiles schema
-          is_active: true,
+          status: userStatus,
+          is_active: typeof row.is_active === 'boolean' ? row.is_active : userStatus === 'active',
           total_orders: 0, // Note: computed from orders relation
           wallet_balance: 0, // Note: wallet ledger not in user_profiles
           created_at: row.created_at || new Date().toISOString(),
@@ -160,13 +161,45 @@ export const api = {
 
   async updateUserStatus(userId: string, newStatus: 'active' | 'suspended'): Promise<ApiResponse<UserProfile>> {
     if (isSupabaseConfigured && supabase) {
-      // Per Bagian 3: Tabel user_profiles tidak memiliki kolom status atau is_active.
-      // Jangan memalsukan keberhasilan perubahan status yang tidak tersimpan di database.
-      return { 
-        data: memoryUsers.find(u => u.id === userId) || memoryUsers[0], 
-        isSimulation: false, 
-        error: 'BELUM DIDUKUNG DATABASE: Tabel user_profiles aktif tidak memiliki kolom status atau is_active. Diperlukan rancangan migrasi akun penangguhan (misal tabel account_suspensions) sebelum aksi ini dapat disimpan secara permanen.' 
+      const isActive = newStatus === 'active';
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .update({ 
+          status: newStatus,
+          is_active: isActive,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId)
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        return { 
+          data: memoryUsers.find(u => u.id === userId) || memoryUsers[0], 
+          isSimulation: false, 
+          error: `Gagal memperbarui status user_profiles: ${error.message}` 
+        };
+      }
+
+      await this.logAudit(
+        'UPDATE_USER_STATUS',
+        'user_profiles',
+        userId,
+        { status: newStatus, is_active: isActive }
+      );
+
+      const raw = data || {};
+      const updatedUser: UserProfile = {
+        ...(memoryUsers.find(u => u.id === userId) || memoryUsers[0]),
+        id: raw.id || userId,
+        display_name: raw.display_name || 'Pengguna KAWAI',
+        full_name: raw.display_name || 'Pengguna KAWAI',
+        status: newStatus,
+        is_active: isActive,
+        updated_at: raw.updated_at,
       };
+
+      return { data: updatedUser, isSimulation: false, error: null };
     }
 
     // In-memory simulation update for evaluation testing
@@ -517,6 +550,7 @@ export const api = {
           .from('order_status_history')
           .insert([{
             order_id: orderId,
+            old_status: 'searching',
             previous_status: 'searching',
             new_status: 'assigned',
             notes: `Penugasan driver oleh administrator operasional: ${driverUserId}`,
@@ -593,6 +627,8 @@ export const api = {
           .from('order_status_history')
           .insert([{
             order_id: orderId,
+            old_status: dbStatus === 'cancelled' ? 'in_trip' : 'searching',
+            previous_status: dbStatus === 'cancelled' ? 'in_trip' : 'searching',
             new_status: dbStatus,
             notes: reason ? `Catatan pembatalan/perubahan: ${reason}` : `Perubahan status order ke ${dbStatus}`,
           }]);
@@ -921,5 +957,48 @@ export const api = {
       isSimulation: ordersRes.isSimulation,
       error: ordersRes.error,
     };
+  },
+
+  // ============================================================================
+  // 12. GOVERNANCE REGISTRY (Target: governance.* schema)
+  // ============================================================================
+  async getCanonicalTerms(): Promise<ApiResponse<any[]>> {
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .schema('governance' as any)
+          .from('canonical_terms')
+          .select('*')
+          .order('term_key', { ascending: true });
+
+        if (error) {
+          return { data: [], isSimulation: false, error: `governance.canonical_terms: ${error.message}` };
+        }
+        return { data: data || [], isSimulation: false, error: null };
+      } catch (err: any) {
+        return { data: [], isSimulation: false, error: err.message };
+      }
+    }
+    return { data: [], isSimulation: true, error: null };
+  },
+
+  async getRegistryState(): Promise<ApiResponse<any | null>> {
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .schema('governance' as any)
+          .from('registry_state')
+          .select('*')
+          .maybeSingle();
+
+        if (error) {
+          return { data: null, isSimulation: false, error: `governance.registry_state: ${error.message}` };
+        }
+        return { data, isSimulation: false, error: null };
+      } catch (err: any) {
+        return { data: null, isSimulation: false, error: err.message };
+      }
+    }
+    return { data: null, isSimulation: true, error: null };
   }
 };
