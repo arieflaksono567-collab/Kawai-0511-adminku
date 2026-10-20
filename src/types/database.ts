@@ -68,6 +68,8 @@ export interface DbOrder {
   cancelled_at: string | null;
   created_at: string;
   updated_at: string;
+  tariff_version?: string | null;
+  calculation_details?: Record<string, unknown> | null;
 }
 
 /** 4. public.order_status_history */
