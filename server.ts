@@ -7,11 +7,18 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseAnonKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-const supabase = (supabaseUrl && supabaseAnonKey) 
-  ? createClient(supabaseUrl, supabaseAnonKey) 
+// User Auth client using anon/publishable key for verifying JWT tokens
+const authClient = (supabaseUrl && supabaseAnonKey) 
+  ? createClient(supabaseUrl, supabaseAnonKey, { auth: { persistSession: false } }) 
+  : null;
+
+// Privileged administrative client using service_role key for backend operations
+const adminClient = (supabaseUrl && supabaseServiceRoleKey) 
+  ? createClient(supabaseUrl, supabaseServiceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } }) 
   : null;
 
 async function startServer() {
@@ -26,26 +33,121 @@ async function startServer() {
   app.use(vite.middlewares);
   app.use(express.json());
 
+  // In-memory idempotency store to prevent duplicate orders
+  const idempotencyStore = new Map<string, any>();
+
   // Backend API Routes
   app.post('/api/orders', async (req, res) => {
-    const { service_type_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, pickup_address, dropoff_address } = req.body;
+    // 1. Validate Authorization header first (Token absence or malformed yields 401)
     const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        error: 'Otorisasi ditolak: Header Authorization Bearer token wajib disertakan.',
+        code: 'UNAUTHORIZED' 
+      });
+    }
 
-    if (!service_type_id || !pickup_address || !dropoff_address || !authHeader) {
-      return res.status(400).json({ error: 'Missing required fields or authentication' });
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!token) {
+      return res.status(401).json({ 
+        error: 'Otorisasi ditolak: Bearer token tidak boleh kosong.',
+        code: 'UNAUTHORIZED' 
+      });
+    }
+
+    // 2. Check Supabase connection readiness
+    if (!supabaseUrl || (!supabaseAnonKey && !supabaseServiceRoleKey)) {
+      return res.status(503).json({ 
+        error: 'Layanan database Supabase belum dikonfigurasi pada server backend (SUPABASE_URL atau kunci Supabase belum disetel).',
+        code: 'SUPABASE_NOT_CONFIGURED' 
+      });
+    }
+
+    // 3. Verify Authentication Token with Supabase Auth
+    // Use authClient (anon key) for token verification; fall back to adminClient if only service role is set
+    const verifierClient = authClient || adminClient;
+    if (!verifierClient) {
+      return res.status(503).json({ 
+        error: 'Layanan autentikasi Supabase belum dikonfigurasi.',
+        code: 'SUPABASE_NOT_CONFIGURED' 
+      });
+    }
+
+    let customer_id: string;
+    try {
+      const { data: authData, error: authError } = await verifierClient.auth.getUser(token);
+      if (authError || !authData?.user) {
+        return res.status(401).json({ 
+          error: 'Sesi token tidak valid atau telah kedaluwarsa.',
+          code: 'INVALID_TOKEN' 
+        });
+      }
+      // CRITICAL SECURITY RULE: customer_id is strictly derived from verified token, NEVER from client body
+      customer_id = authData.user.id;
+    } catch (err: any) {
+      return res.status(401).json({ 
+        error: 'Gagal memverifikasi token autentikasi.',
+        code: 'INVALID_TOKEN' 
+      });
+    }
+
+    // 4. Check Idempotency Key
+    const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'];
+    if (typeof idempotencyKey === 'string' && idempotencyKey.trim() && idempotencyStore.has(idempotencyKey.trim())) {
+      return res.status(200).json(idempotencyStore.get(idempotencyKey.trim()));
+    }
+
+    const { 
+      service_type_id, 
+      pickup_lat, 
+      pickup_lng, 
+      dropoff_lat, 
+      dropoff_lng, 
+      pickup_address, 
+      dropoff_address,
+      notes 
+    } = req.body || {};
+
+    if (!service_type_id || !pickup_address || !dropoff_address) {
+      return res.status(400).json({ 
+        error: 'Parameter tidak lengkap: service_type_id, pickup_address, dan dropoff_address wajib diisi.',
+        code: 'INVALID_PARAMETERS'
+      });
+    }
+
+    // 5. Coordinate validation
+    const latP = Number(pickup_lat);
+    const lngP = Number(pickup_lng);
+    const latD = Number(dropoff_lat);
+    const lngD = Number(dropoff_lng);
+
+    if (
+      isNaN(latP) || isNaN(lngP) || isNaN(latD) || isNaN(lngD) ||
+      latP < -90 || latP > 90 || latD < -90 || latD > 90 ||
+      lngP < -180 || lngP > 180 || lngD < -180 || lngD > 180
+    ) {
+      return res.status(400).json({ 
+        error: 'Koordinat tidak valid: Lintang harus antara -90 dan 90, bujur antara -180 dan 180.',
+        code: 'INVALID_COORDINATES'
+      });
+    }
+
+    // 6. Privileged Database Client Setup
+    const dbClient = adminClient || (authClient ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { persistSession: false },
+      global: { headers: { Authorization: `Bearer ${token}` } }
+    }) : null);
+
+    if (!dbClient) {
+      return res.status(503).json({ 
+        error: 'Klien database Supabase tidak tersedia untuk memproses pesanan.',
+        code: 'SUPABASE_NOT_CONFIGURED' 
+      });
     }
 
     try {
-      // 1. Verify Authentication
-      const token = authHeader.replace('Bearer ', '');
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-      if (authError || !user) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
-      const customer_id = user.id;
-
-      // 2. Fetch tariff rules
-      const { data: rules, error: rulesError } = await supabase
+      // 7. Fetch Active Tariff Rules from Supabase (Source of Truth)
+      const { data: rules, error: rulesError } = await dbClient
         .from('tariff_rules')
         .select('*')
         .eq('service_type_id', service_type_id)
@@ -53,51 +155,117 @@ async function startServer() {
         .maybeSingle();
 
       if (rulesError || !rules) {
-        return res.status(404).json({ error: 'Tariff rules not found or inactive' });
+        return res.status(404).json({ 
+          error: `Aturan tarif aktif untuk service_type_id "${service_type_id}" tidak ditemukan dalam database.`,
+          code: 'TARIFF_NOT_FOUND' 
+        });
       }
 
-      // 3. Tariff Calculation (Gated by Routing Configuration)
-      if (!process.env.ROUTING_API_KEY) {
-        return res.status(503).json({ error: 'Routing service not configured' });
+      // 6. Real Road Routing Integration (No Fake / Placeholder Distance)
+      const apiKey = process.env.ROUTING_API_KEY;
+      const provider = process.env.ROUTING_PROVIDER || 'none';
+
+      let distanceKm: number;
+      let routingProviderName: string;
+
+      if (!apiKey || provider === 'none') {
+        return res.status(503).json({ 
+          error: 'Penyedia routing jalan nyata belum dikonfigurasi (ROUTING_API_KEY / ROUTING_PROVIDER belum disetel pada environment server). Tarif tidak dapat dihitung tanpa jarak jalan nyata.',
+          code: 'ROUTING_NOT_CONFIGURED' 
+        });
       }
-      
-      const distance = 3.4; // Placeholder
-      const fare = rules.base_fare_idr + Math.max(0, distance - Number(rules.included_distance_km)) * rules.fare_per_km_idr;
+
+      if (provider === 'osrm') {
+        const url = `https://router.project-osrm.org/route/v1/driving/${lngP},${latP};${lngD},${latD}?overview=false`;
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          return res.status(502).json({
+            error: 'Layanan routing gagal mengembalikan jarak jalan nyata.',
+            code: 'ROUTING_FAILED'
+          });
+        }
+        const routingData = await resp.json() as any;
+        if (!routingData.routes || !routingData.routes[0]) {
+          return res.status(422).json({
+            error: 'Tidak ditemukan rute jalan yang dapat dilalui antara titik penjemputan dan tujuan.',
+            code: 'NO_ROUTE_FOUND'
+          });
+        }
+        distanceKm = Number((routingData.routes[0].distance / 1000).toFixed(2));
+        routingProviderName = 'osrm';
+      } else {
+        return res.status(503).json({
+          error: `Penyedia routing "${provider}" belum didukung atau memerlukan konfigurasi tambahan.`,
+          code: 'UNSUPPORTED_ROUTING_PROVIDER'
+        });
+      }
+
+      // 7. Calculate Fare on Server
+      const includedKm = Number(rules.included_distance_km) || 0;
+      const additionalDistance = Math.max(0, distanceKm - includedKm);
+      const distanceFare = Math.round(additionalDistance * Number(rules.fare_per_km_idr));
+      const bookingFee = Number(rules.booking_fee_idr) || 0;
+      const calculatedFare = Number(rules.base_fare_idr) + distanceFare + bookingFee;
+      const finalFare = Math.max(calculatedFare, Number(rules.minimum_fare_idr));
+
+      // 8. Prepare Tariff Snapshot
       const calculation_details = {
         rule_id: rules.id,
         rule_version: rules.version,
-        base_fare: rules.base_fare_idr,
-        included_km: rules.included_distance_km,
-        fare_per_km: rules.fare_per_km_idr,
-        distance,
-        fare: Math.max(fare, rules.minimum_fare_idr)
+        service_type_id: rules.service_type_id,
+        base_fare_idr: rules.base_fare_idr,
+        included_distance_km: includedKm,
+        fare_per_km_idr: rules.fare_per_km_idr,
+        minimum_fare_idr: rules.minimum_fare_idr,
+        booking_fee_idr: bookingFee,
+        measured_distance_km: distanceKm,
+        routing_provider: routingProviderName,
+        distance_fare_idr: distanceFare,
+        calculated_fare_idr: calculatedFare,
+        final_fare_idr: finalFare,
+        calculated_at: new Date().toISOString()
       };
 
-      // 4. Order Insertion with Snapshot
-      const { data: order, error: insertError } = await supabase
+      // 9. Atomic Order Insertion with Snapshot
+      const { data: order, error: insertError } = await dbClient
         .from('orders')
         .insert([{
           customer_id,
           service_type_id,
           pickup_address,
-          pickup_lat,
-          pickup_lng,
+          pickup_lat: latP,
+          pickup_lng: lngP,
           dropoff_address,
-          dropoff_lat,
-          dropoff_lng,
-          estimated_distance_km: distance,
-          estimated_fare_idr: calculation_details.fare,
+          dropoff_lat: latD,
+          dropoff_lng: lngD,
+          notes: notes || null,
+          estimated_distance_km: distanceKm,
+          estimated_fare_idr: finalFare,
           tariff_version: rules.version.toString(),
-          calculation_details: calculation_details
+          calculation_details: calculation_details,
+          status: 'searching'
         }])
         .select()
         .single();
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        return res.status(500).json({ 
+          error: `Gagal menyimpan pesanan ke database Supabase: ${insertError.message}`,
+          code: 'DATABASE_INSERT_FAILED'
+        });
+      }
 
-      res.status(200).json(order);
+      // Store in idempotency cache
+      if (typeof idempotencyKey === 'string' && idempotencyKey.trim()) {
+        idempotencyStore.set(idempotencyKey.trim(), order);
+      }
+
+      return res.status(201).json(order);
     } catch (error: any) {
-      res.status(500).json({ error: error.message || 'Failed to create order' });
+      return res.status(500).json({ 
+        error: error.message || 'Terjadi kesalahan internal server saat membuat pesanan.',
+        code: 'INTERNAL_SERVER_ERROR'
+      });
     }
   });
 

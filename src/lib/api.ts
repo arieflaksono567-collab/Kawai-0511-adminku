@@ -521,6 +521,41 @@ export const api = {
     return { data: memoryOrders, isSimulation: true, error: null };
   },
 
+  async createOrder(payload: {
+    service_type_id: string;
+    pickup_address: string;
+    pickup_lat: number;
+    pickup_lng: number;
+    dropoff_address: string;
+    dropoff_lat: number;
+    dropoff_lng: number;
+    notes?: string;
+  }, token?: string, idempotencyKey?: string): Promise<ApiResponse<any>> {
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      if (idempotencyKey) {
+        headers['Idempotency-Key'] = idempotencyKey;
+      }
+      const resp = await fetch('/api/orders', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        return { data: null, isSimulation: false, error: data.error || `HTTP ${resp.status}` };
+      }
+      return { data, isSimulation: false, error: null };
+    } catch (err: any) {
+      return { data: null, isSimulation: false, error: err.message || 'Gagal mengirim permintaan pesanan ke server.' };
+    }
+  },
+
   async assignDriver(orderId: string, driverUserId: string): Promise<ApiResponse<Order>> {
     if (isSupabaseConfigured && supabase) {
       // 1. Update orders table (do NOT send driver_name)
