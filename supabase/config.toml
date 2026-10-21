@@ -1,0 +1,37 @@
+# Supabase Local Configuration for KAWAI 0511
+# This configuration is strictly for local staging/development on localhost.
+# NEVER point this configuration to production database rbfnjgrnojvzvrpyryms.
+
+project_id = "kawai-0511-local"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "governance"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[studio]
+enabled = true
+port = 54323

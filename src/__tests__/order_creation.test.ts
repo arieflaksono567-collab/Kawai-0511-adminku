@@ -174,5 +174,30 @@ test('KAWAI 0511 - Order Creation & Tariff Integration Tests', async (t) => {
     assert.ok(serverCode.includes('idempotencyKey'), 'Must handle Idempotency-Key / x-idempotency-key headers');
     assert.ok(serverCode.includes('idempotencyStore'), 'Must maintain idempotency store to prevent duplicate orders');
   });
+
+  await t.test('13. Startup consistency - backend build generates server.js for npm start', () => {
+    const pkgPath = path.resolve('./package.json');
+    const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+
+    assert.ok(pkgJson.scripts.build.includes('server.js'), 'build script must generate server.js for npm start');
+    assert.strictEqual(pkgJson.scripts.start, 'node server.js', 'start script must invoke node server.js');
+  });
+
+  await t.test('14. Routing error and timeout handling', () => {
+    const serverPath = path.resolve('./server.ts');
+    const serverCode = fs.readFileSync(serverPath, 'utf8');
+
+    assert.ok(serverCode.includes('ROUTING_FAILED'), 'Must handle routing network failure or timeout with ROUTING_FAILED');
+    assert.ok(serverCode.includes('NO_ROUTE_FOUND'), 'Must handle unroutable points with NO_ROUTE_FOUND');
+    assert.ok(serverCode.includes('AbortSignal.timeout'), 'Must enforce timeout on external routing HTTP calls');
+  });
+
+  await t.test('15. Supabase configuration safety - safe rejection when unconfigured', () => {
+    const serverPath = path.resolve('./server.ts');
+    const serverCode = fs.readFileSync(serverPath, 'utf8');
+
+    assert.ok(serverCode.includes('SUPABASE_NOT_CONFIGURED'), 'Must fail safely with SUPABASE_NOT_CONFIGURED when keys/URL are missing');
+  });
 });
+
 

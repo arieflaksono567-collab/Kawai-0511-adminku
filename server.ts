@@ -168,32 +168,45 @@ async function startServer() {
       let distanceKm: number;
       let routingProviderName: string;
 
-      if (!apiKey || provider === 'none') {
+      if (!provider || provider === 'none') {
         return res.status(503).json({ 
-          error: 'Penyedia routing jalan nyata belum dikonfigurasi (ROUTING_API_KEY / ROUTING_PROVIDER belum disetel pada environment server). Tarif tidak dapat dihitung tanpa jarak jalan nyata.',
+          error: 'Penyedia routing jalan nyata belum dikonfigurasi (ROUTING_PROVIDER belum disetel pada environment server). Tarif tidak dapat dihitung tanpa jarak jalan nyata.',
           code: 'ROUTING_NOT_CONFIGURED' 
         });
       }
 
       if (provider === 'osrm') {
-        const url = `https://router.project-osrm.org/route/v1/driving/${lngP},${latP};${lngD},${latD}?overview=false`;
-        const resp = await fetch(url);
-        if (!resp.ok) {
+        try {
+          const url = `https://router.project-osrm.org/route/v1/driving/${lngP},${latP};${lngD},${latD}?overview=false`;
+          const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+          if (!resp.ok) {
+            return res.status(502).json({
+              error: 'Layanan routing gagal mengembalikan jarak jalan nyata.',
+              code: 'ROUTING_FAILED'
+            });
+          }
+          const routingData = await resp.json() as any;
+          if (!routingData.routes || !routingData.routes[0]) {
+            return res.status(422).json({
+              error: 'Tidak ditemukan rute jalan yang dapat dilalui antara titik penjemputan dan tujuan.',
+              code: 'NO_ROUTE_FOUND'
+            });
+          }
+          distanceKm = Number((routingData.routes[0].distance / 1000).toFixed(2));
+          routingProviderName = 'osrm';
+        } catch (routingErr: any) {
           return res.status(502).json({
-            error: 'Layanan routing gagal mengembalikan jarak jalan nyata.',
+            error: `Gagal menghubungi penyedia routing jalan: ${routingErr.message || 'Network / Timeout error'}`,
             code: 'ROUTING_FAILED'
           });
         }
-        const routingData = await resp.json() as any;
-        if (!routingData.routes || !routingData.routes[0]) {
-          return res.status(422).json({
-            error: 'Tidak ditemukan rute jalan yang dapat dilalui antara titik penjemputan dan tujuan.',
-            code: 'NO_ROUTE_FOUND'
+      } else {
+        if (!apiKey) {
+          return res.status(503).json({ 
+            error: `Penyedia routing "${provider}" memerlukan ROUTING_API_KEY yang belum disetel.`,
+            code: 'ROUTING_NOT_CONFIGURED' 
           });
         }
-        distanceKm = Number((routingData.routes[0].distance / 1000).toFixed(2));
-        routingProviderName = 'osrm';
-      } else {
         return res.status(503).json({
           error: `Penyedia routing "${provider}" belum didukung atau memerlukan konfigurasi tambahan.`,
           code: 'UNSUPPORTED_ROUTING_PROVIDER'
