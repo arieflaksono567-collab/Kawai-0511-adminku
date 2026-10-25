@@ -176,12 +176,42 @@ BEGIN
             WHERE table_schema = 'public' AND table_name = 'audit_logs' AND column_name = 'actor_id'
         ) INTO has_actor;
         IF has_actor THEN
+            -- actor_id kosong diisi otomatis dengan auth.uid() (trigger di bawah),
+            -- sehingga staf tidak bisa mencatat atas nama orang lain maupun anonim.
             EXECUTE 'CREATE POLICY rbac_audit_logs_insert ON public.audit_logs FOR INSERT TO authenticated
-                     WITH CHECK (public.is_staff() AND (actor_id IS NULL OR actor_id = auth.uid()))';
+                     WITH CHECK (public.is_staff() AND actor_id = auth.uid())';
         ELSE
             EXECUTE 'CREATE POLICY rbac_audit_logs_insert ON public.audit_logs FOR INSERT TO authenticated
                      WITH CHECK (public.is_staff())';
         END IF;
+    END IF;
+END
+$do$;
+
+-- audit_logs.actor_id otomatis = pengguna yang login
+CREATE OR REPLACE FUNCTION public.fill_audit_actor()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+    IF NEW.actor_id IS NULL AND auth.uid() IS NOT NULL THEN
+        NEW.actor_id := auth.uid();
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DO $do$
+BEGIN
+    IF to_regclass('public.audit_logs') IS NOT NULL AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'audit_logs' AND column_name = 'actor_id'
+    ) THEN
+        DROP TRIGGER IF EXISTS trg_fill_audit_actor ON public.audit_logs;
+        CREATE TRIGGER trg_fill_audit_actor
+            BEFORE INSERT ON public.audit_logs
+            FOR EACH ROW EXECUTE FUNCTION public.fill_audit_actor();
     END IF;
 END
 $do$;

@@ -13,6 +13,7 @@ import {
   FileText
 } from 'lucide-react';
 import { Order, OrderStatus } from '../../types/database';
+import { nextStatusActions } from '../../../shared/orderLifecycle';
 
 interface OrderDetailModalProps {
   order: Order | null;
@@ -165,29 +166,24 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
           </button>
 
           <div className="flex gap-2">
-            {(order.status === 'in_progress' || order.status === 'in_trip') && (
-              <button
-                onClick={() => {
-                  onUpdateStatus(order.id, 'completed');
-                  onClose();
-                }}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs cursor-pointer"
-              >
-                Tandai Selesai
-              </button>
-            )}
-
-            {(order.status === 'pending' || order.status === 'searching' || order.status === 'assigned') && (
-              <button
-                onClick={() => {
-                  onUpdateStatus(order.id, 'cancelled', 'Dibatalkan oleh dispatcher');
-                  onClose();
-                }}
-                className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-medium rounded-xl cursor-pointer"
-              >
-                Batalkan Trip
-              </button>
-            )}
+            {nextStatusActions(order.status)
+              .filter((action) => action.to === 'completed' || action.to === 'cancelled')
+              .map((action) => (
+                <button
+                  key={action.to}
+                  onClick={() => {
+                    onUpdateStatus(order.id, action.to, action.to === 'cancelled' ? 'Dibatalkan oleh dispatcher' : undefined);
+                    onClose();
+                  }}
+                  className={
+                    action.to === 'completed'
+                      ? 'px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs cursor-pointer'
+                      : 'px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-medium rounded-xl cursor-pointer'
+                  }
+                >
+                  {action.to === 'completed' ? 'Tandai Selesai' : 'Batalkan Trip'}
+                </button>
+              ))}
           </div>
         </div>
       </div>

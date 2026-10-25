@@ -1,11 +1,13 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Driver, Order, OperationalZone, AuditLog, DashboardMetrics } from '../types/database';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// import.meta.env tidak ada saat modul dimuat di Node (tes); pakai objek kosong.
+const env: Record<string, any> = (import.meta as any).env ?? {};
+const supabaseUrl = env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY || '';
 
 // Validates whether the environment variables are genuinely configured
-export const isSupabaseConfigured = Boolean(
+export let isSupabaseConfigured = Boolean(
   supabaseUrl && 
   supabaseAnonKey && 
   supabaseUrl.startsWith('https://') && 
@@ -16,12 +18,21 @@ export const isSupabaseConfigured = Boolean(
 // Demo Mode is ONLY permitted in development or when explicitly enabled via VITE_ENABLE_DEMO=true.
 // In production builds, Demo Mode is STRICTLY DISABLED by default to prevent any bypass.
 export const isDemoModeAllowed = Boolean(
-  import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === 'true'
+  env.DEV || env.VITE_ENABLE_DEMO === 'true'
 );
 
-export const supabase: SupabaseClient | null = isSupabaseConfigured
+export let supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
+
+/**
+ * Ganti klien Supabase (hanya untuk tes end-to-end terhadap database uji).
+ * Tidak memberi hak tambahan: klien tetap tunduk pada RLS sesuai tokennya.
+ */
+export function setSupabaseClientForTesting(client: SupabaseClient | null): void {
+  supabase = client;
+  isSupabaseConfigured = client !== null;
+}
 
 export interface ConnectionStatus {
   configured: boolean;
@@ -33,7 +44,7 @@ export interface ConnectionStatus {
 }
 
 export async function checkSupabaseHealth(): Promise<ConnectionStatus> {
-  const targetUrl = supabaseUrl || (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || 'https://rbfnjgrnojvzvrpyryms.supabase.co';
+  const targetUrl = supabaseUrl || env.VITE_SUPABASE_URL || 'https://rbfnjgrnojvzvrpyryms.supabase.co';
 
   if (!isSupabaseConfigured || !supabase) {
     const start = performance.now();

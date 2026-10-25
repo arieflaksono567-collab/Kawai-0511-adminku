@@ -57,6 +57,7 @@ export const ACTION_ACCESS = {
   'driver.approve_documents': ['dispatcher'],
   'driver.create': ['dispatcher'],
   'zone.update': ['dispatcher', 'finance'],
+  'payment.confirm': ['finance'],
   'settings.update': [],
 } as const satisfies Record<string, readonly LimitedRole[]>;
 

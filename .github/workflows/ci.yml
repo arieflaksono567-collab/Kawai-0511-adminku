@@ -2,14 +2,19 @@ name: KAWAI 0511 Admin Panel CI
 
 on:
   push:
-    branches: [ main, 'fix/*', 'feature/*' ]
+    branches: [ main, 'fix/*', 'feature/*', 'feat/*' ]
   pull_request:
     branches: [ main ]
 
 jobs:
   validate:
-    name: Build, Lint & Security Verification
+    name: Build, Lint & Security Verification (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 = runtime server saat ini, 22 = rekomendasi supabase-js
+        node: [20, 22]
 
     steps:
       - name: Checkout Source Code
@@ -18,7 +23,7 @@ jobs:
       - name: Setup Node.js Runtime
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: 'npm'
 
       - name: Install Dependencies

@@ -366,6 +366,20 @@ async function measureRoadDistanceKm(
 // ------------------------------------------------------------------------------
 // Handler utama
 // ------------------------------------------------------------------------------
+// supabase-js >= 2.1xx membuat klien realtime saat createClient() dan gagal di
+// Node.js 20 yang belum punya WebSocket bawaan. Backend order tidak memakai
+// realtime, jadi beri transport pengganti yang hanya error bila benar dipakai.
+class RealtimeNotUsedOnServer {
+  constructor() {
+    throw new Error('Realtime tidak dipakai oleh backend order.');
+  }
+}
+
+export function serverClientOptions<T extends Record<string, any>>(options: T): T {
+  if (typeof (globalThis as any).WebSocket !== 'undefined') return options;
+  return { ...options, realtime: { ...(options as any).realtime, transport: RealtimeNotUsedOnServer as any } };
+}
+
 export async function handleCreateOrder({ authHeader, idempotencyKey, body, env, deps }: CreateOrderInput): Promise<OrderResult> {
   const makeClient = deps?.createClient || createClient;
   const fetchImpl = deps?.fetch || fetch;
@@ -388,9 +402,9 @@ export async function handleCreateOrder({ authHeader, idempotencyKey, body, env,
   }
 
   // 3. Verifikasi token — customer_id SELALU dari token, tidak pernah dari body
-  const verifier = makeClient(supabaseUrl, anonKey || serviceKey, {
+  const verifier = makeClient(supabaseUrl, anonKey || serviceKey, serverClientOptions({
     auth: { persistSession: false, autoRefreshToken: false },
-  });
+  }));
   let customer_id: string;
   try {
     const { data, error } = await verifier.auth.getUser(token);
@@ -411,11 +425,11 @@ export async function handleCreateOrder({ authHeader, idempotencyKey, body, env,
   const input = parsed.value;
 
   const db: SupabaseClient = serviceKey
-    ? makeClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
-    : makeClient(supabaseUrl, anonKey, {
+    ? makeClient(supabaseUrl, serviceKey, serverClientOptions({ auth: { persistSession: false, autoRefreshToken: false } }))
+    : makeClient(supabaseUrl, anonKey, serverClientOptions({
         auth: { persistSession: false, autoRefreshToken: false },
         global: { headers: { Authorization: `Bearer ${token}` } },
-      });
+      }));
 
   const findExisting = async () => {
     if (!idem.key) return null;

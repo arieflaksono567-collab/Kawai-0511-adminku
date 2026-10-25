@@ -385,6 +385,77 @@ b_server AS (
     SELECT 'INFO', 'B. Skema & migrasi', 'B0 Versi PostgreSQL', 'server', version()
 ),
 
+-- ---------------------------------------------------------------------------
+-- C. Kesiapan alur order (migrasi 20261026000001 & 20261026000002) — read-only
+-- ---------------------------------------------------------------------------
+c_role_values(status, grp, chk, obj, detail) AS (
+    SELECT CASE WHEN bad IS NULL THEN 'OK' ELSE 'FAIL' END, 'C', 'C1 peran staf bisa disimpan',
+           'user_profiles.role',
+           coalesce('Nilai peran ditolak tipe/constraint: ' || bad, 'dispatcher/finance/support bisa disimpan')
+    FROM (
+        SELECT string_agg(r, ', ') AS bad FROM unnest(ARRAY['superadmin','dispatcher','finance','support']) r
+        WHERE EXISTS (  -- kolom enum tanpa label ini
+                SELECT 1 FROM information_schema.columns c
+                JOIN pg_type t ON t.typname = c.udt_name AND t.typtype = 'e'
+                WHERE c.table_schema = 'public' AND c.table_name = 'user_profiles' AND c.column_name = 'role'
+                  AND NOT EXISTS (SELECT 1 FROM pg_enum e WHERE e.enumtypid = t.oid AND e.enumlabel = r))
+           OR EXISTS (  -- CHECK constraint pada role yang tidak menyebut nilai ini
+                SELECT 1 FROM pg_constraint k
+                WHERE k.conrelid = to_regclass('public.user_profiles') AND k.contype = 'c'
+                  AND pg_get_constraintdef(k.oid) ILIKE '%role%'
+                  AND pg_get_constraintdef(k.oid) NOT ILIKE '%' || r || '%')
+    ) x
+),
+c_triggers(status, grp, chk, obj, detail) AS (
+    SELECT CASE WHEN tg.tgname IN ('trg_enforce_order_lifecycle','trg_log_order_status_change','trg_guard_limited_staff_orders')
+                THEN 'OK'
+                WHEN tg.tgname ILIKE '%history%' OR tg.tgname ILIKE '%status%' THEN 'WARN' ELSE 'INFO' END,
+           'C', 'C2 trigger pada orders', tg.tgname,
+           CASE WHEN tg.tgname ILIKE '%history%' OR tg.tgname ILIKE '%status%'
+                THEN 'Periksa: bisa menggandakan riwayat status setelah migrasi alur order'
+                ELSE 'fungsi ' || tg.tgfoid::regproc::TEXT END
+    FROM pg_trigger tg
+    WHERE tg.tgrelid = to_regclass('public.orders') AND NOT tg.tgisinternal
+),
+c_lifecycle(status, grp, chk, obj, detail) AS (
+    SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_enforce_order_lifecycle') THEN 'OK' ELSE 'INFO' END,
+           'C', 'C3 migrasi alur order', '20261026000002',
+           CASE WHEN EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_enforce_order_lifecycle')
+                THEN 'sudah diterapkan' ELSE 'belum diterapkan' END
+),
+c_multi_active(status, grp, chk, obj, detail) AS (
+    SELECT CASE WHEN count(*) = 0 THEN 'OK' ELSE 'WARN' END, 'C', 'C4 driver dengan >1 order aktif', 'orders',
+           count(*) || ' driver (indeks unik tidak akan dibuat sampai dibereskan)'
+    FROM (SELECT driver_id FROM public.orders
+          WHERE driver_id IS NOT NULL AND status::TEXT IN ('assigned','arrived','in_trip')
+          GROUP BY driver_id HAVING count(*) > 1) d
+),
+c_no_driver(status, grp, chk, obj, detail) AS (
+    SELECT CASE WHEN count(*) = 0 THEN 'OK' ELSE 'WARN' END, 'C', 'C5 order berjalan tanpa driver', 'orders',
+           count(*) || ' order berstatus assigned/arrived/in_trip/completed tanpa driver_id'
+    FROM public.orders WHERE driver_id IS NULL AND status::TEXT IN ('assigned','arrived','in_trip','completed')
+),
+c_stuck(status, grp, chk, obj, detail) AS (
+    SELECT CASE WHEN count(*) = 0 THEN 'OK' ELSE 'WARN' END, 'C', 'C6 order aktif > 6 jam', 'orders',
+           count(*) || ' order belum selesai lebih dari 6 jam'
+    FROM public.orders
+    WHERE status::TEXT IN ('searching','assigned','arrived','in_trip') AND created_at < now() - interval '6 hours'
+),
+c_payment_cols(status, grp, chk, obj, detail) AS (
+    SELECT CASE WHEN count(*) = 2 THEN 'OK' ELSE 'WARN' END, 'C', 'C7 kolom pembayaran', 'payment_transactions',
+           CASE WHEN count(*) = 2 THEN 'order_id & amount_idr ada (pembayaran otomatis saat selesai bisa dibuat)'
+                ELSE 'order_id/amount_idr tidak lengkap: pembayaran otomatis akan dilewati' END
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'payment_transactions' AND column_name IN ('order_id','amount_idr')
+),
+c_completed_unpaid(status, grp, chk, obj, detail) AS (
+    SELECT 'INFO', 'C', 'C8 order selesai tanpa pembayaran', 'orders',
+           count(*) || ' order completed tanpa baris payment_transactions (data lama, tidak diisi otomatis)'
+    FROM public.orders o
+    WHERE o.status::TEXT = 'completed'
+      AND to_regclass('public.payment_transactions') IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM public.payment_transactions p WHERE p.order_id = o.id)
+),
 allrows(status, grp, chk, obj, detail) AS (
     SELECT * FROM a1
     UNION ALL SELECT * FROM a1_fns
@@ -409,6 +480,14 @@ allrows(status, grp, chk, obj, detail) AS (
     UNION ALL SELECT * FROM b_order_status
     UNION ALL SELECT * FROM b_tariffs
     UNION ALL SELECT * FROM b_zones
+    UNION ALL SELECT * FROM c_role_values
+    UNION ALL SELECT * FROM c_triggers
+    UNION ALL SELECT * FROM c_lifecycle
+    UNION ALL SELECT * FROM c_multi_active
+    UNION ALL SELECT * FROM c_no_driver
+    UNION ALL SELECT * FROM c_stuck
+    UNION ALL SELECT * FROM c_payment_cols
+    UNION ALL SELECT * FROM c_completed_unpaid
 )
 SELECT status, grp AS kelompok, chk AS cek, obj AS objek, detail
 FROM allrows

@@ -1,63 +1,49 @@
 import React, { useState } from 'react';
 import { CreditCard, Search, ArrowUpRight, CheckCircle2, Clock, AlertCircle, Download, DollarSign } from 'lucide-react';
+import { useCallback, useEffect } from 'react';
 import { isSupabaseConfigured } from '../../lib/supabase';
+import { api } from '../../lib/api';
+import { useAuth } from '../auth/AuthContext';
+import { PaymentRow, PaymentUiStatus, summarizePayments, toPaymentRow } from './paymentModel';
+
+const DEMO_TRANSACTIONS: PaymentRow[] = [
+  { id: 'TXN-DEMO-001', order_id: null, order_number: 'KAW-DEMO-001', customer_label: 'Budi Santoso', amount: 18000, fee: 2700, payment_method: 'QRIS', payment_status: 'paid', created_at: '2025-04-20T10:24:00Z' },
+  { id: 'TXN-DEMO-002', order_id: null, order_number: 'KAW-DEMO-002', customer_label: 'Siti Rahayu', amount: 45000, fee: 6750, payment_method: 'Dompet KAWAI Pay', payment_status: 'paid', created_at: '2025-04-20T10:18:00Z' },
+  { id: 'TXN-DEMO-003', order_id: null, order_number: 'KAW-DEMO-003', customer_label: 'Ahmad Fauzi', amount: 22000, fee: 3300, payment_method: 'Tunai (Cash)', payment_status: 'pending', created_at: '2025-04-20T09:56:00Z' },
+];
 
 export const PaymentsPage: React.FC = () => {
+  const { can } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'pending' | 'refunded'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | PaymentUiStatus>('all');
+  const [transactions, setTransactions] = useState<PaymentRow[]>(isSupabaseConfigured ? [] : DEMO_TRANSACTIONS);
+  const [isLoading, setIsLoading] = useState(isSupabaseConfigured);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  const transactions = [
-    {
-      id: 'TXN-20250420-001',
-      order_number: 'KAW-20250420-001',
-      customer_name: 'Budi Santoso',
-      amount: 18000,
-      fee: 2500,
-      payment_method: 'QRIS Gopay/OVO',
-      payment_status: 'paid',
-      created_at: '2025-04-20 10:24',
-    },
-    {
-      id: 'TXN-20250420-002',
-      order_number: 'KAW-20250420-002',
-      customer_name: 'Siti Rahayu',
-      amount: 45000,
-      fee: 6500,
-      payment_method: 'Dompet KAWAI Pay',
-      payment_status: 'paid',
-      created_at: '2025-04-20 10:18',
-    },
-    {
-      id: 'TXN-20250420-003',
-      order_number: 'KAW-20250420-003',
-      customer_name: 'Ahmad Fauzi',
-      amount: 22000,
-      fee: 3000,
-      payment_method: 'Tunai (Cash)',
-      payment_status: 'pending',
-      created_at: '2025-04-20 09:56',
-    },
-    {
-      id: 'TXN-20250420-004',
-      order_number: 'KAW-20250420-004',
-      customer_name: 'Dewi Lestari',
-      amount: 38000,
-      fee: 5500,
-      payment_method: 'QRIS Mandiri/BCA',
-      payment_status: 'paid',
-      created_at: '2025-04-20 09:42',
-    },
-    {
-      id: 'TXN-20250420-005',
-      order_number: 'KAW-20250420-005',
-      customer_name: 'Rudi Hermawan',
-      amount: 14000,
-      fee: 2000,
-      payment_method: 'Dompet KAWAI Pay',
-      payment_status: 'refunded',
-      created_at: '2025-04-20 09:21',
-    },
-  ];
+  const load = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    setIsLoading(true);
+    const res = await api.getPaymentTransactions();
+    setIsLoading(false);
+    if (res.error) { setError(res.error); return; }
+    setError(null);
+    setTransactions(res.data.map(toPaymentRow));
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const handleConfirm = async (row: PaymentRow) => {
+    if (!can('payment.confirm')) { setError('Peran Anda tidak memiliki izin untuk mengonfirmasi pembayaran.'); return; }
+    setBusyId(row.id);
+    const res = await api.confirmPayment(row.id);
+    setBusyId(null);
+    if (res.error) { setError(res.error); return; }
+    setTransactions(prev => prev.map(t => t.id === row.id ? toPaymentRow(res.data) : t));
+    void api.logAudit('CONFIRM_PAYMENT', 'payment_transaction', row.id, { order_id: row.order_id, amount_idr: row.amount });
+  };
+
+  const summary = summarizePayments(transactions);
 
   const formatIDR = (val: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -67,11 +53,16 @@ export const PaymentsPage: React.FC = () => {
     }).format(val);
   };
 
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' });
+  };
+
   const filtered = transactions.filter((t) => {
     const matchesSearch = 
       t.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
       t.order_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.customer_name.toLowerCase().includes(searchTerm.toLowerCase());
+      t.customer_label.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || t.payment_status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -97,22 +88,29 @@ export const PaymentsPage: React.FC = () => {
         </div>
       </div>
 
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="font-semibold">Tutup</button>
+        </div>
+      )}
+
       {/* Summary Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white border border-slate-100 p-5 rounded-2xl shadow-sm">
           <p className="text-xs font-semibold text-slate-500">Total Volume Transaksi</p>
-          <h3 className="text-2xl font-extrabold text-slate-900 mt-1">Rp 137.000</h3>
-          <p className="text-[11px] text-emerald-600 font-medium mt-1">5 transaksi hari ini</p>
+          <h3 className="text-2xl font-extrabold text-slate-900 mt-1">{formatIDR(summary.volume)}</h3>
+          <p className="text-[11px] text-emerald-600 font-medium mt-1">{summary.count} transaksi, {summary.pendingCount} menunggu konfirmasi</p>
         </div>
         <div className="bg-white border border-slate-100 p-5 rounded-2xl shadow-sm">
           <p className="text-xs font-semibold text-slate-500">Pendapatan Komisi KAWAI</p>
-          <h3 className="text-2xl font-extrabold text-slate-900 mt-1">Rp 19.500</h3>
-          <p className="text-[11px] text-slate-400 mt-1">Rata-rata 14.2% per trip</p>
+          <h3 className="text-2xl font-extrabold text-slate-900 mt-1">{formatIDR(summary.fee)}</h3>
+          <p className="text-[11px] text-slate-400 mt-1">Estimasi 15% dari transaksi lunas</p>
         </div>
         <div className="bg-white border border-slate-100 p-5 rounded-2xl shadow-sm">
           <p className="text-xs font-semibold text-slate-500">Metode QRIS &amp; E-Wallet</p>
-          <h3 className="text-2xl font-extrabold text-slate-900 mt-1">80%</h3>
-          <p className="text-[11px] text-slate-400 mt-1">Transaksi non-tunai dominan</p>
+          <h3 className="text-2xl font-extrabold text-slate-900 mt-1">{summary.nonCashPct}%</h3>
+          <p className="text-[11px] text-slate-400 mt-1">Porsi transaksi non-tunai</p>
         </div>
       </div>
 
@@ -140,6 +138,7 @@ export const PaymentsPage: React.FC = () => {
             <option value="paid">Lunas (Paid)</option>
             <option value="pending">Menunggu (Pending)</option>
             <option value="refunded">Dikembalikan (Refunded)</option>
+            <option value="failed">Gagal (Failed)</option>
           </select>
         </div>
       </div>
@@ -158,6 +157,7 @@ export const PaymentsPage: React.FC = () => {
                 <th className="py-3 px-4">Komisi Platform</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Waktu</th>
+                <th className="py-3 px-4">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -165,7 +165,7 @@ export const PaymentsPage: React.FC = () => {
                 <tr key={t.id} className="hover:bg-slate-50/70 transition-colors">
                   <td className="py-3.5 px-4 font-mono font-medium text-slate-800">{t.id}</td>
                   <td className="py-3.5 px-4 font-mono text-slate-600">{t.order_number}</td>
-                  <td className="py-3.5 px-4 font-medium text-slate-800">{t.customer_name}</td>
+                  <td className="py-3.5 px-4 font-medium text-slate-800">{t.customer_label}</td>
                   <td className="py-3.5 px-4 text-slate-600">{t.payment_method}</td>
                   <td className="py-3.5 px-4 font-bold text-slate-900">{formatIDR(t.amount)}</td>
                   <td className="py-3.5 px-4 font-medium text-red-600">{formatIDR(t.fee)}</td>
@@ -188,10 +188,37 @@ export const PaymentsPage: React.FC = () => {
                         Refund
                       </span>
                     )}
+                    {t.payment_status === 'failed' && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                        Gagal
+                      </span>
+                    )}
                   </td>
-                  <td className="py-3.5 px-4 text-slate-400 font-mono">{t.created_at}</td>
+                  <td className="py-3.5 px-4 text-slate-400 font-mono">{formatDate(t.created_at)}</td>
+                  <td className="py-3.5 px-4">
+                    {t.payment_status === 'pending' && isSupabaseConfigured && can('payment.confirm') && (
+                      <button
+                        onClick={() => handleConfirm(t)}
+                        disabled={busyId === t.id}
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-semibold rounded-lg text-[11px]"
+                      >
+                        {busyId === t.id ? 'Memproses...' : 'Konfirmasi Lunas'}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
+              {!isLoading && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center text-slate-400">Belum ada transaksi.</td>
+                </tr>
+              )}
+              {isLoading && (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center text-slate-400">Memuat transaksi...</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
