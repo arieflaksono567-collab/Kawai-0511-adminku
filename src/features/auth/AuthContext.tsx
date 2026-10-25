@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured, isDemoModeAllowed } from '../../lib/supabase';
 import { AdminUser, AdminRole, DbUserProfile } from '../../types/database';
+import { canAccessTab, canPerform, StaffAction } from '../../../shared/rbac';
 
 interface AuthContextType {
   user: AdminUser | null;
@@ -11,9 +12,14 @@ interface AuthContextType {
   loginAsDemoAdmin: (role: AdminRole) => { success: boolean; error?: string };
   logout: () => Promise<void>;
   hasRole: (requiredRoles: AdminRole[]) => boolean;
+  /** Boleh membuka halaman panel ini? (peta: shared/rbac.ts) */
+  canAccess: (tab: string) => boolean;
+  /** Boleh menjalankan aksi ini? (peta: shared/rbac.ts) */
+  can: (action: StaffAction) => boolean;
 }
 
-// Peran staf yang boleh masuk panel. Harus sama dengan public.is_admin() di database.
+// Peran staf yang boleh masuk panel. Harus sama dengan public.is_staff() di database.
+// Hak akses per peran ada di shared/rbac.ts.
 export const STAFF_ROLES: readonly AdminRole[] = ['superadmin', 'admin', 'dispatcher', 'finance', 'support'];
 // Peran dengan akses penuh ke seluruh modul panel.
 export const FULL_ACCESS_ROLES: readonly AdminRole[] = ['superadmin', 'admin'];
@@ -235,6 +241,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return requiredRoles.includes(user.role);
   };
 
+  const canAccess = (tab: string): boolean => canAccessTab(user?.role, tab);
+  const can = (action: StaffAction): boolean => canPerform(user?.role, action);
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -245,6 +254,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       loginAsDemoAdmin,
       logout,
       hasRole,
+      canAccess,
+      can,
     }}>
       {children}
     </AuthContext.Provider>
