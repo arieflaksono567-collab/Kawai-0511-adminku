@@ -198,6 +198,55 @@ test('KAWAI 0511 - Order Creation & Tariff Integration Tests', async (t) => {
 
     assert.ok(serverCode.includes('SUPABASE_NOT_CONFIGURED'), 'Must fail safely with SUPABASE_NOT_CONFIGURED when keys/URL are missing');
   });
+
+  await t.test('16. Canonical forward migration verification (20261025000001)', () => {
+    const migrationPath = path.resolve('./supabase/migrations/20261025000001_reconcile_canonical_schema.sql');
+    assert.ok(fs.existsSync(migrationPath), 'Migration 20261025000001 must exist');
+    const sql = fs.readFileSync(migrationPath, 'utf8');
+
+    // Verify canonical columns additions
+    assert.ok(sql.includes('pickup_address TEXT'), 'Must add pickup_address');
+    assert.ok(sql.includes('dropoff_address TEXT'), 'Must add dropoff_address');
+    assert.ok(sql.includes('service_type_id UUID'), 'Must add service_type_id');
+    assert.ok(sql.includes('estimated_fare_idr INTEGER'), 'Must add estimated_fare_idr');
+    // Verify bidirectional backfill
+    assert.ok(sql.includes('pickup_address = COALESCE(pickup_address, origin_address'), 'Must backfill pickup_address');
+    // Verify views
+    assert.ok(sql.includes('CREATE OR REPLACE VIEW public.admin_users'), 'Must provide admin_users view');
+    assert.ok(sql.includes('CREATE OR REPLACE VIEW public.operational_zones'), 'Must provide operational_zones view');
+    // Verify status constraint
+    assert.ok(sql.includes('orders_status_check'), 'Must reconcile orders_status_check constraint');
+  });
+
+  await t.test('17. Health probe and CORS support in server.ts', () => {
+    const serverPath = path.resolve('./server.ts');
+    const serverCode = fs.readFileSync(serverPath, 'utf8');
+
+    assert.ok(serverCode.includes("app.get('/health'"), 'Server must have /health endpoint');
+    assert.ok(serverCode.includes("app.get('/api/health'"), 'Server must have /api/health endpoint');
+    assert.ok(serverCode.includes('Access-Control-Allow-Origin'), 'Server must configure CORS headers for multi-origin hosting');
+  });
+
+  await t.test('18. Cloudflare Pages Functions edge API availability', () => {
+    const healthFnPath = path.resolve('./functions/api/health.ts');
+    const ordersFnPath = path.resolve('./functions/api/orders.ts');
+
+    assert.ok(fs.existsSync(healthFnPath), 'Cloudflare Pages health function must exist');
+    assert.ok(fs.existsSync(ordersFnPath), 'Cloudflare Pages orders function must exist');
+
+    const ordersFn = fs.readFileSync(ordersFnPath, 'utf8');
+    assert.ok(ordersFn.includes('onRequestPost'), 'Must export onRequestPost handler');
+    assert.ok(ordersFn.includes('onRequestOptions'), 'Must export onRequestOptions handler');
+    assert.ok(ordersFn.includes('tariff_version'), 'Must snapshot tariff_version');
+    assert.ok(ordersFn.includes('calculation_details'), 'Must snapshot calculation_details');
+  });
+
+  await t.test('19. Client API VITE_API_URL decouple support', () => {
+    const apiPath = path.resolve('./src/lib/api.ts');
+    const apiCode = fs.readFileSync(apiPath, 'utf8');
+
+    assert.ok(apiCode.includes('VITE_API_URL'), 'Client createOrder must support optional VITE_API_URL for decoupled hosting');
+  });
 });
 
 

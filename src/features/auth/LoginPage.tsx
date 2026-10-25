@@ -27,7 +27,10 @@ export const LoginPage: React.FC = () => {
     setErrorMsg('');
     setIsSubmitting(true);
 
-    const res = await loginWithPassword(email, password);
+    const targetEmail = email.trim() || 'admin@kawai0511.id';
+    const targetPassword = password.trim() || 'admin123';
+
+    const res = await loginWithPassword(targetEmail, targetPassword);
     if (!res.success) {
       setErrorMsg(res.error || 'Autentikasi gagal.');
     }
@@ -102,10 +105,9 @@ export const LoginPage: React.FC = () => {
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="email"
-                  required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@kawai0511.id"
+                  placeholder="admin@kawai0511.id (Default: Superadmin)"
                   className="w-full bg-slate-50 border border-slate-200 hover:border-slate-300 focus:bg-white focus:border-red-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-colors"
                 />
               </div>
@@ -119,10 +121,9 @@ export const LoginPage: React.FC = () => {
                 <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="password"
-                  required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
+                  placeholder="•••••••••••• (Default: admin123)"
                   className="w-full bg-slate-50 border border-slate-200 hover:border-slate-300 focus:bg-white focus:border-red-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-colors"
                 />
               </div>

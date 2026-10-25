@@ -541,11 +541,20 @@ export const api = {
       if (idempotencyKey) {
         headers['Idempotency-Key'] = idempotencyKey;
       }
-      const resp = await fetch('/api/orders', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-      });
+      const baseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
+        ? import.meta.env.VITE_API_URL.replace(/\/+$/, '')
+        : '';
+      const resp = baseUrl 
+        ? await fetch(`${baseUrl}/api/orders`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+          })
+        : await fetch('/api/orders', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+          });
       const data = await resp.json();
       if (!resp.ok) {
         return { data: null, isSimulation: false, error: data.error || `HTTP ${resp.status}` };

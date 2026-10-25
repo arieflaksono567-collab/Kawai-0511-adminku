@@ -35,7 +35,7 @@ export const SupabaseCloudflareModal: React.FC<SupabaseCloudflareModalProps> = (
   };
 
   const copyConfigSnippet = () => {
-    const snippet = `VITE_SUPABASE_URL="https://your-project.supabase.co"\nVITE_SUPABASE_ANON_KEY="your-anon-key-here"`;
+    const snippet = `VITE_SUPABASE_URL="https://rbfnjgrnojvzvrpyryms.supabase.co"\nVITE_SUPABASE_ANON_KEY="<masukkan-anon-key-anda>"`;
     navigator.clipboard.writeText(snippet);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);

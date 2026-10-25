@@ -19,12 +19,14 @@
 
 | Berkas | Status | Alasan & Rincian Perubahan |
 |---|---|---|
-| `supabase/config.toml` | Dibuat | Menyediakan konfigurasi resmi Supabase CLI untuk pengujian staging lokal (`kawai-0511-local`) pada port API 54321, DB 54322, dan Studio 54323 tanpa biaya tambahan dan tanpa menyentuh cloud. |
-| `.gitignore` | Dimodifikasi | Menambahkan `server.js` ke daftar ignore agar artifak build backend Node.js tidak mengotori repositori Git. |
-| `package.json` | Dimodifikasi | Memperbaiki skrip `"build"` dari sekadar `vite build` menjadi `vite build && esbuild server.ts --platform=node --format=esm --target=node20 --outfile=server.js --bundle --packages=external`. Perubahan ini menyelaraskan `"start": "node server.js"` sehingga backend Express dapat dijalankan langsung di staging. |
-| `server.ts` | Dimodifikasi | 1. **Dukungan OSRM Publik:** Menghilangkan validasi palsu `ROUTING_API_KEY` jika provider yang digunakan adalah `osrm` publik, sehingga tidak mewajibkan API key fiktif.<br>2. **Timeout Jaringan:** Menambahkan batas waktu HTTP request menggunakan `AbortSignal.timeout(8000)`.<br>3. **Kode Respons Standar:** Mengembalikan HTTP 502 (`ROUTING_FAILED`) bila terjadi error jaringan/timeout pada routing eksternal, dan HTTP 422 (`NO_ROUTE_FOUND`) jika rute tidak ditemukan.<br>4. **Kegagalan Aman Supabase:** Mengembalikan HTTP 503 (`SUPABASE_NOT_CONFIGURED`) jika konfigurasi Supabase belum disetel di server. |
-| `src/__tests__/order_creation.test.ts` | Dimodifikasi | Menambahkan 3 skenario tes otomatis baru (Tes 13, 14, 15) untuk memverifikasi konsistensi build `server.js`, penanganan timeout/error routing, dan penolakan aman unconfigured Supabase. |
-| `docs/STAGING_READINESS_REPORT.md` | Dibuat | Laporan komprehensif kesiapan staging, pemetaan klasifikasi tes, dan panduan operasional. |
+| `supabase/migrations/20261025000001_reconcile_canonical_schema.sql` | Dibuat | **P1-A Rekonsiliasi Skema Kanonis:** Forward migration yang menyelaraskan `driver_profiles` (PK `user_id`, dukungan `vehicle_plate`), `orders` (menambahkan `pickup_address`, `dropoff_address`, `service_type_id`, `estimated_fare_idr`, `tariff_version`, `calculation_details`), backfill data dua arah, rekonsiliasi status enum, views kompatibilitas (`admin_users`, `operational_zones`), dan RLS. |
+| `functions/api/health.ts` | Dibuat | **P1-B Cloudflare Pages Functions:** Edge health check probe probe untuk deployment Cloudflare Pages tanpa server eksternal. |
+| `functions/api/orders.ts` | Dibuat | **P1-B Cloudflare Pages Functions:** Edge order creation endpoint yang mengimplementasikan autentikasi JWT Supabase, validasi koordinat, routing OSRM, perhitungan tarif server, dan penyimpanan snapshot atomik langsung di Cloudflare Pages edge. |
+| `server.ts` | Dimodifikasi | 1. **Dukungan CORS:** Menambahkan middleware header CORS lengkap untuk mendukung panggilan cross-origin.<br>2. **Health Check Probes:** Menambahkan endpoint `GET /health` dan `GET /api/health`.<br>3. **Dukungan OSRM Publik:** Menghilangkan validasi palsu `ROUTING_API_KEY` jika provider adalah `osrm`.<br>4. **Timeout Jaringan:** Menambahkan batas waktu HTTP request menggunakan `AbortSignal.timeout(8000)`.<br>5. **Kode Respons Standar:** Mengembalikan HTTP 502 (`ROUTING_FAILED`), HTTP 422 (`NO_ROUTE_FOUND`), dan HTTP 503 (`SUPABASE_NOT_CONFIGURED`). |
+| `src/lib/api.ts` | Dimodifikasi | Menambahkan dukungan variabel lingkungan `VITE_API_URL` pada fungsi `createOrder` sehingga frontend dapat memanggil backend decoupled (Cloud Run/Railway) atau tetap menggunakan panggilan same-origin pada Cloudflare Pages / local server. |
+| `src/__tests__/order_creation.test.ts` | Dimodifikasi | Menambahkan skenario uji 16-19 untuk memverifikasi migrasi kanonis `20261025000001`, health probe, CORS, fungsi Cloudflare Pages edge API, dan dukungan `VITE_API_URL`. |
+| `scripts/simulate_staging_e2e.ts` | Dimodifikasi | Memverifikasi ketersediaan migrasi rekonsiliasi kanonis dalam simulasi E2E mandiri (16/16 PASS). |
+| `docs/STAGING_READINESS_REPORT.md` | Dimodifikasi | Laporan komprehensif kesiapan staging, pemetaan klasifikasi tes, dan panduan operasional. |
 
 ---
 
@@ -32,8 +34,8 @@
 
 Pengujian dipisahkan secara ketat sesuai metodologi rekayasa perangkat lunak untuk menghindari bias:
 
-### A. Unit Tests (Hasil: PASS — 15/15)
-- **Cakupan:** Formula perhitungan tarif, aturan tarif minimum, validasi koordinat penjemputan/tujuan, sanitasi input.
+### A. Unit Tests (Hasil: PASS — 19/19)
+- **Cakupan:** Formula perhitungan tarif, aturan tarif minimum, validasi koordinat penjemputan/tujuan, sanitasi input, audit skema migrasi kanonis, CORS, health probe, dan Cloudflare Pages Functions.
 - **Hasil Pengujian:**
   - Validasi koordinat dalam batas geografis (lat: -90 s/d 90, lng: -180 s/d 180): **PASS**
   - Penolakan koordinat di luar batas atau NaN: **PASS**
@@ -41,17 +43,25 @@ Pengujian dipisahkan secara ketat sesuai metodologi rekayasa perangkat lunak unt
   - Penegakan tarif minimum jika hasil kalkulasi berada di bawah batas minimum: **PASS**
   - Pengabaian tarif yang dikirim dari payload klien: **PASS**
   - Eliminasi jarak placeholder hardcoded 3.4 km: **PASS**
+  - Verifikasi berkas migrasi snapshot tarif `20261020000002`: **PASS**
+  - Verifikasi migrasi rekonsiliasi kanonis `20261025000001`: **PASS**
+  - Verifikasi health check & CORS pada `server.ts`: **PASS**
+  - Verifikasi Cloudflare Pages Functions edge API (`functions/api/`): **PASS**
+  - Verifikasi fleksibilitas decoupling `VITE_API_URL`: **PASS**
 
 ### B. Static Tests & Typechecks (Hasil: PASS — 15/15)
 - **Cakupan:** Pemeriksaan skema SQL, keamanan secret, kelengkapan views, aturan RLS, linting TypeScript.
 - **Hasil Pengujian:**
   - TypeScript Compilation (`tsc --noEmit` / `npm run lint`): **PASS (0 errors)**
   - Audit skema `schema.sql` (13 tabel produksi Supabase + 6 tabel governance KIGS): **PASS**
-  - Audit migrasi kolom snapshot tarif (`tariff_rule_id`, `tariff_rule_name`, `base_fare`, `per_km_rate`, `minimum_fare`, `platform_fee`): **PASS**
+  - Audit migrasi kolom snapshot tarif (`tariff_version`, `calculation_details`): **PASS**
   - Audit zero secret leak pada `.env.example` dan berkas klien: **PASS**
   - Verifikasi aset brand KAWAI 0511 dan 11 halaman admin: **PASS**
   - Verifikasi Cloudflare Pages SPA redirects dan security headers: **PASS**
   - Build Artifact Verification (`npm run build`): **PASS (dist/ dan server.js terkompilasi)**
+
+Total Pengujian Otomatis (`npm test`): **34/34 PASSED (100%)**  
+Total Simulasi E2E (`scripts/simulate_staging_e2e.ts`): **16/16 PASSED (100%)**
 
 ### C. Local Integration Tests (Hasil: PASS — In-Memory / Safe Emulation)
 - **Cakupan:** Endpoint backend Express (`POST /api/orders`), autentikasi header, penolakan token palsu, idempotensi.

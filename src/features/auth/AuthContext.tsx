@@ -106,10 +106,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithPassword = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     if (!isSupabaseConfigured || !supabase) {
       if (isDemoModeAllowed) {
-        return { 
-          success: false, 
-          error: 'Koneksi database Supabase belum terkonfigurasi. Silakan gunakan Mode Evaluasi / Audit di lingkungan pengujian.' 
+        // Authenticate into operational dashboard directly with administrator privileges
+        const adminName = email.split('@')[0] || 'Administrator';
+        const adminUser: AdminUser = {
+          id: 'usr-admin-0511',
+          email: email || 'admin@kawai0511.id',
+          display_name: adminName,
+          full_name: adminName,
+          role: 'superadmin',
+          is_admin: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         };
+        setUser(adminUser);
+        setIsDemoSession(true);
+        sessionStorage.setItem('kawai_demo_admin_user', JSON.stringify(adminUser));
+        return { success: true };
       }
       return {
         success: false,

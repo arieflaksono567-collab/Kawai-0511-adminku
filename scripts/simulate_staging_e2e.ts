@@ -60,10 +60,11 @@ async function runStagingSimulation() {
   const migrationsDir = path.resolve('./supabase/migrations');
   const migrations = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql'));
   const hasSnapshotMigration = migrations.includes('20261020000002_add_tariff_snapshot.sql');
-  if (hasSnapshotMigration) {
-    record('1. AUDIT', 'Tariff Snapshot Migration Availability', 'PASS', `Found 20261020000002_add_tariff_snapshot.sql amongst ${migrations.length} migrations`);
+  const hasReconciliationMigration = migrations.includes('20261025000001_reconcile_canonical_schema.sql');
+  if (hasSnapshotMigration && hasReconciliationMigration) {
+    record('1. AUDIT', 'Schema & Tariff Migration Availability', 'PASS', `Found 20261020000002_add_tariff_snapshot.sql and 20261025000001_reconcile_canonical_schema.sql amongst ${migrations.length} migrations`);
   } else {
-    record('1. AUDIT', 'Tariff Snapshot Migration Availability', 'FAIL', 'Missing 20261020000002_add_tariff_snapshot.sql');
+    record('1. AUDIT', 'Schema & Tariff Migration Availability', 'FAIL', 'Missing required migration files');
   }
 
   // =========================================================================

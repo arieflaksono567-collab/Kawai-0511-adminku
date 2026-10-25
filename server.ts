@@ -33,6 +33,31 @@ async function startServer() {
   app.use(vite.middlewares);
   app.use(express.json());
 
+  // CORS middleware for multi-origin hosting and Cloudflare Pages compatibility
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Idempotency-Key, x-idempotency-key');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
+  // Health check endpoints for deployment probes & container readiness
+  const healthHandler = (_req: express.Request, res: express.Response) => {
+    res.status(200).json({
+      status: 'healthy',
+      subsystem: 'kawai-0511-backend',
+      uptime_seconds: process.uptime(),
+      timestamp: new Date().toISOString(),
+      supabase_configured: Boolean(supabaseUrl && (supabaseAnonKey || supabaseServiceRoleKey)),
+      routing_configured: Boolean(process.env.ROUTING_PROVIDER && process.env.ROUTING_PROVIDER !== 'none'),
+    });
+  };
+  app.get('/health', healthHandler);
+  app.get('/api/health', healthHandler);
+
   // In-memory idempotency store to prevent duplicate orders
   const idempotencyStore = new Map<string, any>();
 

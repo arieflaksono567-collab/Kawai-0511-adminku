@@ -33,10 +33,28 @@ export interface ConnectionStatus {
 }
 
 export async function checkSupabaseHealth(): Promise<ConnectionStatus> {
+  const targetUrl = supabaseUrl || (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || 'https://rbfnjgrnojvzvrpyryms.supabase.co';
+
   if (!isSupabaseConfigured || !supabase) {
+    const start = performance.now();
+    try {
+      const resp = await fetch(`${targetUrl}/rest/v1/`, { method: 'GET', signal: AbortSignal.timeout(4000) });
+      const latencyMs = Math.round(performance.now() - start);
+      if (resp.status === 401 || resp.ok) {
+        return {
+          configured: false,
+          url: targetUrl,
+          connected: true,
+          latencyMs,
+          message: `Endpoint Supabase Cloud (${targetUrl}) aktif & merespons (${latencyMs}ms). Masukkan VITE_SUPABASE_ANON_KEY di environment untuk otorisasi data penuh.`,
+        };
+      }
+    } catch {
+      // network failure or offline
+    }
     return {
       configured: false,
-      url: supabaseUrl || 'Tidak disetel (Not set)',
+      url: targetUrl,
       connected: false,
       message: 'Supabase URL atau Anon Key belum disetel di environment variables.',
     };
