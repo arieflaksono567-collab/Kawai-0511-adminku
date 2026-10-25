@@ -23,7 +23,10 @@ export interface OrderEnv {
   MAX_ACTIVE_ORDERS_PER_CUSTOMER?: string;
   /** Jarak jalan maksimum satu perjalanan dalam km (default 60) */
   MAX_TRIP_DISTANCE_KM?: string;
-  /** Cadangan bila service_zones belum punya polygon: "minLat,minLng,maxLat,maxLng" */
+  /**
+   * Cadangan bila service_zones belum punya polygon: "minLat,minLng,maxLat,maxLng".
+   * Kosong = kotak Banjarmasin Raya (DEFAULT_SERVICE_AREA_BBOX). "none" = tanpa batas.
+   */
   SERVICE_AREA_BBOX?: string;
 }
 
@@ -233,6 +236,15 @@ export function isInsideAnyPolygon(lat: number, lng: number, polygons: Ring[][])
   return polygons.some((rings) => pointInPolygonCoords(lng, lat, rings));
 }
 
+/** Kotak kasar Banjarmasin Raya: Banjarmasin, Banjarbaru, sisi barat Martapura, sebagian Barito Kuala. */
+export const DEFAULT_SERVICE_AREA_BBOX = '-3.50,114.45,-3.20,114.85';
+
+export function resolveServiceAreaBbox(raw: string | undefined): [number, number, number, number] | null {
+  const value = (raw ?? '').trim();
+  if (value.toLowerCase() === 'none') return null;
+  return parseBbox(value || DEFAULT_SERVICE_AREA_BBOX);
+}
+
 export function parseBbox(raw: string | undefined): [number, number, number, number] | null {
   if (!raw) return null;
   const parts = raw.split(',').map((x) => Number(x.trim()));
@@ -255,13 +267,13 @@ async function checkServiceArea(db: SupabaseClient, input: ValidOrderInput, env:
     }
   }
 
-  const bbox = parseBbox(env.SERVICE_AREA_BBOX);
+  const bbox = resolveServiceAreaBbox(env.SERVICE_AREA_BBOX);
   if (bbox) {
     const [minLat, minLng, maxLat, maxLng] = bbox;
     const inBox = input.pickup_lat >= minLat && input.pickup_lat <= maxLat && input.pickup_lng >= minLng && input.pickup_lng <= maxLng;
     return inBox ? null : outside;
   }
-  return null; // Belum ada zona terkonfigurasi
+  return null; // SERVICE_AREA_BBOX="none": pembatasan zona dimatikan
 }
 
 // ------------------------------------------------------------------------------

@@ -14,6 +14,8 @@ import {
   extractPolygons,
   isInsideAnyPolygon,
   parseBbox,
+  resolveServiceAreaBbox,
+  DEFAULT_SERVICE_AREA_BBOX,
 } from '../../shared/orderService';
 import { buildContentSecurityPolicy, renderCloudflareHeadersFile } from '../../shared/securityHeaders';
 
@@ -255,11 +257,14 @@ test('S6: zona layanan dari polygon service_zones', async () => {
   });
   assert.strictEqual(outside.status, 422);
   assert.strictEqual(outside.body.code, 'OUTSIDE_SERVICE_AREA');
-  const noZones = await handleCreateOrder({
-    authHeader: 'Bearer tokenA', idempotencyKey: null,
-    body: { ...validBody, pickup_lat: -6.2, pickup_lng: 106.8 }, env, deps: deps([{ boundary: { type: 'Polygon', coordinates: [] } }]),
-  });
-  assert.strictEqual(noZones.status, 201, 'Tanpa polygon & tanpa bbox: tidak dibatasi');
+  const emptyZones = [{ boundary: { type: 'Polygon', coordinates: [] } }];
+  const jakarta = { ...validBody, pickup_lat: -6.2, pickup_lng: 106.8 };
+  const defaultBox = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: null, body: jakarta, env, deps: deps(emptyZones) });
+  assert.strictEqual(defaultBox.body.code, 'OUTSIDE_SERVICE_AREA', 'Tanpa polygon: kotak Banjarmasin Raya bawaan berlaku');
+  const inBox = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: null, body: validBody, env, deps: deps(emptyZones) });
+  assert.strictEqual(inBox.status, 201, 'Banjarmasin di dalam kotak bawaan');
+  const off = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: null, body: jakarta, env: { ...env, SERVICE_AREA_BBOX: 'none' }, deps: deps(emptyZones) });
+  assert.strictEqual(off.status, 201, 'SERVICE_AREA_BBOX=none mematikan pembatasan');
 });
 
 test('S6: cadangan SERVICE_AREA_BBOX & batas jarak perjalanan', async () => {
@@ -298,4 +303,21 @@ test('R1/R3: file patch & dependensi tidak terpakai sudah dihapus', () => {
   assert.ok(!fs.existsSync(path.resolve('public/assets/aistudio')) || fs.readdirSync(path.resolve('public/assets/aistudio')).length === 0);
   const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
   assert.strictEqual(pkg.dependencies['@google/genai'], undefined);
+});
+
+test('Zona bawaan Banjarmasin Raya mencakup kota-kota utama', () => {
+  assert.strictEqual(DEFAULT_SERVICE_AREA_BBOX, '-3.50,114.45,-3.20,114.85');
+  const [minLat, minLng, maxLat, maxLng] = resolveServiceAreaBbox(undefined)!;
+  const inside = (lat: number, lng: number) => lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
+  assert.ok(inside(-3.3194, 114.5908), 'Banjarmasin');
+  assert.ok(inside(-3.4420, 114.8310), 'Banjarbaru');
+  assert.ok(inside(-3.4140, 114.8400), 'Martapura (sisi barat)');
+  assert.strictEqual(resolveServiceAreaBbox('none'), null);
+});
+
+test('Seed tarif default untuk semua layanan', () => {
+  const seed = fs.readFileSync(path.resolve('supabase/seed.sql'), 'utf8');
+  assert.match(seed, /INSERT INTO public\.tariff_rules/);
+  assert.match(seed, /'ride_motor', 'ride_car', 'delivery', 'food'/);
+  assert.match(seed, /NOT EXISTS[\s\S]*tr\.status = 'active'/, 'Seed tidak boleh membuat duplikat aturan aktif');
 });
