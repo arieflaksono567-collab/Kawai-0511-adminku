@@ -3,7 +3,8 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
-import { buildCorsHeaders, handleCreateOrder, OrderEnv } from './shared/orderService';
+import { buildCorsHeaders, createRateLimiter, handleCreateOrder, OrderEnv } from './shared/orderService';
+import { buildSecurityHeaders } from './shared/securityHeaders';
 
 dotenv.config();
 
@@ -24,6 +25,21 @@ async function startServer() {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
   app.disable('x-powered-by');
+  // Set TRUST_PROXY=1 bila server berada di belakang reverse proxy/load balancer
+  // agar req.ip memakai IP klien asli (X-Forwarded-For).
+  if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+
+  if (isProduction) {
+    const securityHeaders = buildSecurityHeaders({
+      supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
+      apiUrl: process.env.VITE_API_URL,
+    });
+    app.use((_req, res, next) => {
+      for (const [k, v] of Object.entries(securityHeaders)) res.setHeader(k, v);
+      next();
+    });
+  }
+
   app.use(express.json({ limit: '16kb' }));
 
   // CORS: hanya origin yang terdaftar di ALLOWED_ORIGINS (dipisah koma).
@@ -49,8 +65,16 @@ async function startServer() {
   app.get('/health', healthHandler);
   app.get('/api/health', healthHandler);
 
+  // Lapis pertama rate limit per IP (lapis utama per pelanggan ada di database)
+  const orderIpLimiter = createRateLimiter({ windowMs: 60_000, max: Number(process.env.ORDER_IP_LIMIT_PER_MIN) || 20 });
+
   // Order creation (logika bersama dengan Cloudflare Pages Function)
   app.post('/api/orders', async (req, res) => {
+    const limit = orderIpLimiter.hit(req.ip || 'unknown');
+    if (!limit.allowed) {
+      res.setHeader('Retry-After', String(limit.retryAfterSec));
+      return res.status(429).json({ error: 'Terlalu banyak permintaan. Coba lagi sebentar lagi.', code: 'RATE_LIMITED' });
+    }
     const idemHeader = req.headers['idempotency-key'] ?? req.headers['x-idempotency-key'];
     const result = await handleCreateOrder({
       authHeader: req.headers.authorization,

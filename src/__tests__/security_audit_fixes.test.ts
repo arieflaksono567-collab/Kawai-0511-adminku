@@ -10,7 +10,12 @@ import {
   validateOrderInput,
   normalizeIdempotencyKey,
   calculateFare,
+  createRateLimiter,
+  extractPolygons,
+  isInsideAnyPolygon,
+  parseBbox,
 } from '../../shared/orderService';
+import { buildContentSecurityPolicy, renderCloudflareHeadersFile } from '../../shared/securityHeaders';
 
 const SERVICE_ID = '11111111-2222-3333-4444-555555555555';
 const validBody = {
@@ -33,7 +38,7 @@ const rule = {
 };
 
 /** Supabase palsu: menyimpan order di memori dan menegakkan UNIQUE(customer_id, idempotency_key). */
-function makeFakeSupabase(userIdForToken: Record<string, string>) {
+function makeFakeSupabase(userIdForToken: Record<string, string>, opts: { zones?: any[] } = {}) {
   const orders: any[] = [];
   const client = (_url: string, _key: string) => ({
     auth: {
@@ -43,23 +48,36 @@ function makeFakeSupabase(userIdForToken: Record<string, string>) {
           : { data: { user: null }, error: { message: 'bad token' } },
     },
     from(table: string) {
-      const filters: Record<string, unknown> = {};
+      const eqs: Record<string, unknown> = {};
+      let gte: [string, string] | null = null;
+      let inF: [string, unknown[]] | null = null;
+      let head = false;
       let pendingInsert: any = null;
+      const matches = (o: any) =>
+        Object.entries(eqs).every(([k, v]) => o[k] === v) &&
+        (!gte || o[gte[0]] >= gte[1]) &&
+        (!inF || inF[1].includes(o[inF[0]]));
       const q: any = {
-        select() { return q; },
-        eq(col: string, val: unknown) { filters[col] = val; return q; },
+        select(_c?: string, o?: { head?: boolean }) { head = Boolean(o?.head); return q; },
+        eq(col: string, val: unknown) { eqs[col] = val; return q; },
+        gte(col: string, val: string) { gte = [col, val]; return q; },
+        in(col: string, vals: unknown[]) { inF = [col, vals]; return q; },
         insert(rows: any[]) { pendingInsert = rows[0]; return q; },
+        then(resolve: (v: any) => void) {
+          if (table === 'service_zones') return resolve({ data: opts.zones ?? [], error: null });
+          const rows = orders.filter(matches);
+          return resolve(head ? { count: rows.length, data: null, error: null } : { data: rows, error: null });
+        },
         async maybeSingle() {
           if (table === 'tariff_rules') return { data: rule, error: null };
-          const found = orders.find(o => Object.entries(filters).every(([k, v]) => o[k] === v));
-          return { data: found || null, error: null };
+          return { data: orders.find(matches) || null, error: null };
         },
         async single() {
           const row = pendingInsert;
           if (row.idempotency_key && orders.some(o => o.customer_id === row.customer_id && o.idempotency_key === row.idempotency_key)) {
             return { data: null, error: { code: '23505', message: 'duplicate' } };
           }
-          const saved = { id: `ord-${orders.length + 1}`, ...row };
+          const saved = { id: `ord-${orders.length + 1}`, created_at: new Date().toISOString(), ...row };
           orders.push(saved);
           return { data: saved, error: null };
         },
@@ -170,4 +188,114 @@ test('K4: Server produksi tidak memuat Vite dev server', () => {
   assert.match(server, /express\.static\(distDir/);
   const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
   assert.match(pkg.scripts.start, /NODE_ENV=production/);
+});
+
+// ------------------------------------------------------------------------------
+// Temuan Sedang & Rendah
+// ------------------------------------------------------------------------------
+const bjmPolygon = {
+  type: 'Polygon',
+  coordinates: [[[114.50, -3.40], [114.70, -3.40], [114.70, -3.25], [114.50, -3.25], [114.50, -3.40]]],
+};
+
+test('S2: batas order aktif & frekuensi per pelanggan (database)', async () => {
+  const fake = makeFakeSupabase({ tokenA: 'user-a' });
+  const deps = { createClient: fake.client, fetch: fakeFetch };
+  const call = () => handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: null, body: validBody, env, deps });
+  assert.strictEqual((await call()).status, 201);
+  assert.strictEqual((await call()).status, 201);
+  const third = await call();
+  assert.strictEqual(third.status, 409, 'Order aktif ke-3 ditolak');
+  assert.strictEqual(third.body.code, 'ACTIVE_ORDER_LIMIT');
+
+  // Order selesai tidak dihitung aktif, tapi tetap dihitung untuk batas 10 menit
+  fake.orders.forEach(o => { o.status = 'completed'; });
+  const envTight = { ...env, ORDER_RATE_LIMIT_PER_10_MIN: '2' };
+  const limited = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: null, body: validBody, env: envTight, deps });
+  assert.strictEqual(limited.status, 429);
+  assert.strictEqual(limited.body.code, 'RATE_LIMITED');
+});
+
+test('S2: retry idempotent tidak terkena batas order', async () => {
+  const fake = makeFakeSupabase({ tokenA: 'user-a' });
+  const deps = { createClient: fake.client, fetch: fakeFetch };
+  const envOne = { ...env, MAX_ACTIVE_ORDERS_PER_CUSTOMER: '1' };
+  const first = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: 'retry-key-1', body: validBody, env: envOne, deps });
+  const retry = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: 'retry-key-1', body: validBody, env: envOne, deps });
+  assert.strictEqual(first.status, 201);
+  assert.strictEqual(retry.status, 200);
+  assert.strictEqual(retry.body.id, first.body.id);
+});
+
+test('S2: rate limiter per IP dengan memori terbatas', () => {
+  const rl = createRateLimiter({ windowMs: 1000, max: 2, maxKeys: 3 });
+  assert.ok(rl.hit('ip1', 0).allowed);
+  assert.ok(rl.hit('ip1', 10).allowed);
+  const blocked = rl.hit('ip1', 20);
+  assert.strictEqual(blocked.allowed, false);
+  assert.ok(blocked.retryAfterSec >= 1);
+  assert.ok(rl.hit('ip1', 1500).allowed, 'Jendela waktu bergeser');
+  for (let i = 0; i < 100; i++) rl.hit(`flood-${i}`, 2000);
+  assert.ok(rl.hit('ip-new', 2000).allowed);
+});
+
+test('S6: zona layanan dari polygon service_zones', async () => {
+  const polys = extractPolygons(bjmPolygon);
+  assert.strictEqual(polys.length, 1);
+  assert.ok(isInsideAnyPolygon(-3.3194, 114.5908, polys), 'Siring Banjarmasin di dalam zona');
+  assert.ok(!isInsideAnyPolygon(-6.2, 106.8, polys), 'Jakarta di luar zona');
+  assert.deepStrictEqual(extractPolygons({ type: 'Polygon', coordinates: [] }), [], 'Polygon kosong (seed) diabaikan');
+
+  const deps = (zones: any[]) => ({ createClient: makeFakeSupabase({ tokenA: 'user-a' }, { zones }).client, fetch: fakeFetch });
+  const inside = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: null, body: validBody, env, deps: deps([{ boundary: bjmPolygon }]) });
+  assert.strictEqual(inside.status, 201);
+  const outside = await handleCreateOrder({
+    authHeader: 'Bearer tokenA', idempotencyKey: null,
+    body: { ...validBody, pickup_lat: -6.2, pickup_lng: 106.8 }, env, deps: deps([{ boundary: bjmPolygon }]),
+  });
+  assert.strictEqual(outside.status, 422);
+  assert.strictEqual(outside.body.code, 'OUTSIDE_SERVICE_AREA');
+  const noZones = await handleCreateOrder({
+    authHeader: 'Bearer tokenA', idempotencyKey: null,
+    body: { ...validBody, pickup_lat: -6.2, pickup_lng: 106.8 }, env, deps: deps([{ boundary: { type: 'Polygon', coordinates: [] } }]),
+  });
+  assert.strictEqual(noZones.status, 201, 'Tanpa polygon & tanpa bbox: tidak dibatasi');
+});
+
+test('S6: cadangan SERVICE_AREA_BBOX & batas jarak perjalanan', async () => {
+  assert.deepStrictEqual(parseBbox('-3.5,114.45,-3.2,114.85'), [-3.5, 114.45, -3.2, 114.85]);
+  assert.strictEqual(parseBbox('salah'), null);
+  const deps = { createClient: makeFakeSupabase({ tokenA: 'user-a' }).client, fetch: fakeFetch };
+  const r = await handleCreateOrder({
+    authHeader: 'Bearer tokenA', idempotencyKey: null,
+    body: { ...validBody, pickup_lat: -6.2, pickup_lng: 106.8 },
+    env: { ...env, SERVICE_AREA_BBOX: '-3.5,114.45,-3.2,114.85' }, deps,
+  });
+  assert.strictEqual(r.body.code, 'OUTSIDE_SERVICE_AREA');
+  const longTrip = await handleCreateOrder({
+    authHeader: 'Bearer tokenA', idempotencyKey: null, body: validBody,
+    env: { ...env, MAX_TRIP_DISTANCE_KM: '3' }, deps, // fakeFetch = 5 km
+  });
+  assert.strictEqual(longTrip.body.code, 'TRIP_TOO_LONG');
+});
+
+test('R2: CSP ketat tanpa unsafe-eval / script dari mana saja', () => {
+  const csp = buildContentSecurityPolicy({ supabaseUrl: 'https://abc.supabase.co', apiUrl: 'https://api.kawai0511.id/v1' });
+  const script = csp.split('; ').find(d => d.startsWith('script-src'))!;
+  assert.strictEqual(script, "script-src 'self'");
+  assert.doesNotMatch(csp, /unsafe-eval/);
+  const connect = csp.split('; ').find(d => d.startsWith('connect-src'))!;
+  assert.match(connect, /https:\/\/abc\.supabase\.co/);
+  assert.match(connect, /wss:\/\/abc\.supabase\.co/);
+  assert.match(connect, /https:\/\/api\.kawai0511\.id(\s|$)/);
+  assert.doesNotMatch(connect, /(^|\s)https:(\s|$)/, 'connect-src tidak boleh https: bebas');
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /object-src 'none'/);
+  assert.match(renderCloudflareHeadersFile(), /Strict-Transport-Security/);
+});
+
+test('R1/R3: file patch & dependensi tidak terpakai sudah dihapus', () => {
+  assert.ok(!fs.existsSync(path.resolve('public/assets/aistudio')) || fs.readdirSync(path.resolve('public/assets/aistudio')).length === 0);
+  const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
+  assert.strictEqual(pkg.dependencies['@google/genai'], undefined);
 });

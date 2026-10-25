@@ -17,6 +17,14 @@ export interface OrderEnv {
   ROUTING_API_KEY?: string;
   OSRM_BASE_URL?: string;
   ALLOWED_ORIGINS?: string;
+  /** Maks. order baru per pelanggan dalam 10 menit (default 5) */
+  ORDER_RATE_LIMIT_PER_10_MIN?: string;
+  /** Maks. order aktif (belum selesai/batal) per pelanggan (default 2) */
+  MAX_ACTIVE_ORDERS_PER_CUSTOMER?: string;
+  /** Jarak jalan maksimum satu perjalanan dalam km (default 60) */
+  MAX_TRIP_DISTANCE_KM?: string;
+  /** Cadangan bila service_zones belum punya polygon: "minLat,minLng,maxLat,maxLng" */
+  SERVICE_AREA_BBOX?: string;
 }
 
 export interface OrderResult {
@@ -148,6 +156,152 @@ export function normalizeIdempotencyKey(raw: string | null | undefined): { ok: t
 }
 
 // ------------------------------------------------------------------------------
+// Rate limiting (per IP, di memori — lapis pertama sebelum cek database)
+// ------------------------------------------------------------------------------
+export interface RateLimiter {
+  /** true bila permintaan diizinkan */
+  hit(key: string, now?: number): { allowed: boolean; retryAfterSec: number };
+}
+
+/**
+ * Sliding-window sederhana dengan batas jumlah key agar memori tidak bocor.
+ * Di Cloudflare tiap isolate punya memori sendiri, jadi ini hanya lapis
+ * best-effort; lapis utama adalah batas per pelanggan di database.
+ */
+export function createRateLimiter({ windowMs, max, maxKeys = 10_000 }: { windowMs: number; max: number; maxKeys?: number }): RateLimiter {
+  const hits = new Map<string, number[]>();
+  return {
+    hit(key, now = Date.now()) {
+      const since = now - windowMs;
+      const list = (hits.get(key) || []).filter((t) => t > since);
+      if (list.length >= max) {
+        hits.set(key, list);
+        return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((list[0] + windowMs - now) / 1000)) };
+      }
+      list.push(now);
+      hits.delete(key);
+      hits.set(key, list);
+      // Buang key tertua bila melebihi kapasitas (Map menjaga urutan sisip)
+      while (hits.size > maxKeys) {
+        const oldest = hits.keys().next().value as string;
+        hits.delete(oldest);
+      }
+      return { allowed: true, retryAfterSec: 0 };
+    },
+  };
+}
+
+// ------------------------------------------------------------------------------
+// Zona layanan
+// ------------------------------------------------------------------------------
+type Ring = number[][]; // [[lng, lat], ...] (urutan GeoJSON)
+
+function pointInRing(lng: number, lat: number, ring: Ring): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInPolygonCoords(lng: number, lat: number, rings: Ring[]): boolean {
+  if (!rings.length || !pointInRing(lng, lat, rings[0])) return false;
+  // Ring berikutnya adalah lubang (hole)
+  return !rings.slice(1).some((hole) => pointInRing(lng, lat, hole));
+}
+
+const isValidRing = (r: unknown): r is Ring =>
+  Array.isArray(r) && r.length >= 4 && r.every((p) => Array.isArray(p) && p.length >= 2 && p.every(Number.isFinite));
+
+/** Mengembalikan daftar polygon (sebagai rings) dari GeoJSON Polygon/MultiPolygon/Feature yang valid. */
+export function extractPolygons(geo: any): Ring[][] {
+  if (!geo || typeof geo !== 'object') return [];
+  if (geo.type === 'Feature') return extractPolygons(geo.geometry);
+  if (geo.type === 'FeatureCollection') return (geo.features || []).flatMap(extractPolygons);
+  if (geo.type === 'Polygon' && Array.isArray(geo.coordinates) && geo.coordinates.every(isValidRing)) {
+    return geo.coordinates.length ? [geo.coordinates] : [];
+  }
+  if (geo.type === 'MultiPolygon' && Array.isArray(geo.coordinates)) {
+    return geo.coordinates.filter((poly: unknown) => Array.isArray(poly) && poly.length && poly.every(isValidRing));
+  }
+  return [];
+}
+
+export function isInsideAnyPolygon(lat: number, lng: number, polygons: Ring[][]): boolean {
+  return polygons.some((rings) => pointInPolygonCoords(lng, lat, rings));
+}
+
+export function parseBbox(raw: string | undefined): [number, number, number, number] | null {
+  if (!raw) return null;
+  const parts = raw.split(',').map((x) => Number(x.trim()));
+  if (parts.length !== 4 || !parts.every(Number.isFinite)) return null;
+  const [minLat, minLng, maxLat, maxLng] = parts;
+  return minLat < maxLat && minLng < maxLng ? [minLat, minLng, maxLat, maxLng] : null;
+}
+
+async function checkServiceArea(db: SupabaseClient, input: ValidOrderInput, env: OrderEnv): Promise<OrderResult | null> {
+  const outside = fail(422, 'OUTSIDE_SERVICE_AREA', 'Titik jemput berada di luar zona layanan KAWAI 0511.');
+
+  const { data, error } = await db.from('service_zones').select('boundary').eq('is_active', true);
+  if (error) {
+    // Zona adalah aturan bisnis, bukan kontrol akses: jangan blokir order bila tabel bermasalah
+    console.error('[orders] service_zones lookup failed', error);
+  } else {
+    const polygons = (data || []).flatMap((z: any) => extractPolygons(z?.boundary));
+    if (polygons.length) {
+      return isInsideAnyPolygon(input.pickup_lat, input.pickup_lng, polygons) ? null : outside;
+    }
+  }
+
+  const bbox = parseBbox(env.SERVICE_AREA_BBOX);
+  if (bbox) {
+    const [minLat, minLng, maxLat, maxLng] = bbox;
+    const inBox = input.pickup_lat >= minLat && input.pickup_lat <= maxLat && input.pickup_lng >= minLng && input.pickup_lng <= maxLng;
+    return inBox ? null : outside;
+  }
+  return null; // Belum ada zona terkonfigurasi
+}
+
+// ------------------------------------------------------------------------------
+// Batas order per pelanggan (database — berlaku di semua instance/isolate)
+// ------------------------------------------------------------------------------
+export const ACTIVE_ORDER_STATUSES = ['searching', 'assigned', 'arrived', 'in_trip'];
+
+const intEnv = (raw: string | undefined, fallback: number) => {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+};
+
+async function checkCustomerLimits(db: SupabaseClient, customer_id: string, env: OrderEnv): Promise<OrderResult | null> {
+  const perWindow = intEnv(env.ORDER_RATE_LIMIT_PER_10_MIN, 5);
+  const maxActive = intEnv(env.MAX_ACTIVE_ORDERS_PER_CUSTOMER, 2);
+  const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+  const recent = await db
+    .from('orders')
+    .select('id', { count: 'exact', head: true })
+    .eq('customer_id', customer_id)
+    .gte('created_at', since);
+  if (recent.error) throw recent.error;
+  if ((recent.count ?? 0) >= perWindow) {
+    return fail(429, 'RATE_LIMITED', 'Terlalu banyak pesanan dalam waktu singkat. Coba lagi beberapa menit lagi.');
+  }
+
+  const active = await db
+    .from('orders')
+    .select('id', { count: 'exact', head: true })
+    .eq('customer_id', customer_id)
+    .in('status', ACTIVE_ORDER_STATUSES);
+  if (active.error) throw active.error;
+  if ((active.count ?? 0) >= maxActive) {
+    return fail(409, 'ACTIVE_ORDER_LIMIT', 'Anda masih memiliki pesanan aktif. Selesaikan atau batalkan dulu sebelum memesan lagi.');
+  }
+  return null;
+}
+
+// ------------------------------------------------------------------------------
 // Tarif
 // ------------------------------------------------------------------------------
 export function calculateFare(rules: Record<string, any>, distanceKm: number) {
@@ -268,6 +422,12 @@ export async function handleCreateOrder({ authHeader, idempotencyKey, body, env,
     const existing = await findExisting();
     if (existing) return { status: 200, body: existing };
 
+    // 5b. Batas order per pelanggan & zona layanan
+    const limited = await checkCustomerLimits(db, customer_id, env);
+    if (limited) return limited;
+    const outsideArea = await checkServiceArea(db, input, env);
+    if (outsideArea) return outsideArea;
+
     // 6. Aturan tarif aktif
     const { data: rules, error: rulesError } = await db
       .from('tariff_rules')
@@ -286,6 +446,10 @@ export async function handleCreateOrder({ authHeader, idempotencyKey, body, env,
     // 7. Jarak jalan nyata
     const route = await measureRoadDistanceKm(input, env, fetchImpl);
     if (!route.ok) return route.result;
+    const maxTripKm = intEnv(env.MAX_TRIP_DISTANCE_KM, 60);
+    if (route.km > maxTripKm) {
+      return fail(422, 'TRIP_TOO_LONG', `Jarak perjalanan melebihi batas ${maxTripKm} km.`);
+    }
 
     // 8. Tarif + snapshot
     const fare = calculateFare(rules, route.km);

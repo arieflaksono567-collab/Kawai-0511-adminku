@@ -1,14 +1,37 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
 import path from 'path';
-import {defineConfig} from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
+import { renderCloudflareHeadersFile } from './shared/securityHeaders';
 
-export default defineConfig(() => {
+const ROOT = import.meta.dirname || process.cwd();
+
+/**
+ * Menulis dist/_headers saat build, dengan CSP connect-src yang otomatis
+ * menyertakan origin Supabase dan VITE_API_URL dari environment build.
+ */
+function securityHeadersPlugin(mode: string): Plugin {
   return {
-    plugins: [react(), tailwindcss()],
+    name: 'kawai-security-headers',
+    apply: 'build',
+    closeBundle() {
+      const env = loadEnv(mode, ROOT, '');
+      const content = renderCloudflareHeadersFile({
+        supabaseUrl: env.VITE_SUPABASE_URL || 'https://rbfnjgrnojvzvrpyryms.supabase.co',
+        apiUrl: env.VITE_API_URL,
+      });
+      fs.writeFileSync(path.resolve(ROOT, 'dist', '_headers'), content);
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  return {
+    plugins: [react(), tailwindcss(), securityHeadersPlugin(mode)],
     resolve: {
       alias: {
-        '@': path.resolve(import.meta.dirname || process.cwd(), '.'),
+        '@': path.resolve(ROOT, '.'),
       },
     },
     server: {
