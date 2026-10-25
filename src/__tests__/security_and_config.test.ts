@@ -10,11 +10,11 @@ test('1. Cloudflare Pages SPA redirects file verification', () => {
   assert.match(content, /\/\*\s+\/index\.html\s+200/, 'Redirects file must rewrite /* to /index.html 200');
 });
 
-test('2. Cloudflare Pages security headers verification', () => {
-  const headersPath = path.resolve(process.cwd(), 'public/_headers');
-  assert.ok(fs.existsSync(headersPath), 'public/_headers must exist');
-  const content = fs.readFileSync(headersPath, 'utf-8');
-  assert.ok(content.includes('X-Frame-Options: SAMEORIGIN'), 'Must include X-Frame-Options');
+test('2. Cloudflare Pages security headers verification', async () => {
+  // dist/_headers kini dibuat saat build dari shared/securityHeaders.ts
+  const { renderCloudflareHeadersFile } = await import('../../shared/securityHeaders');
+  const content = renderCloudflareHeadersFile({ supabaseUrl: 'https://abc.supabase.co' });
+  assert.ok(content.includes('X-Frame-Options: DENY'), 'Must include X-Frame-Options');
   assert.ok(content.includes('X-Content-Type-Options: nosniff'), 'Must include X-Content-Type-Options');
   assert.ok(content.includes('Content-Security-Policy'), 'Must include Content-Security-Policy');
 });

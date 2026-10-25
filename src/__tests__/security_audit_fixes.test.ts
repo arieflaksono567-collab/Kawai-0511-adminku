@@ -1,0 +1,323 @@
+import { test } from 'node:test';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  handleCreateOrder,
+  resolveCorsOrigin,
+  parseAllowedOrigins,
+  buildCorsHeaders,
+  validateOrderInput,
+  normalizeIdempotencyKey,
+  calculateFare,
+  createRateLimiter,
+  extractPolygons,
+  isInsideAnyPolygon,
+  parseBbox,
+  resolveServiceAreaBbox,
+  DEFAULT_SERVICE_AREA_BBOX,
+} from '../../shared/orderService';
+import { buildContentSecurityPolicy, renderCloudflareHeadersFile } from '../../shared/securityHeaders';
+
+const SERVICE_ID = '11111111-2222-3333-4444-555555555555';
+const validBody = {
+  service_type_id: SERVICE_ID,
+  pickup_address: 'Menara Pandang Siring',
+  dropoff_address: 'Duta Mall Banjarmasin',
+  pickup_lat: -3.3194, pickup_lng: 114.5908,
+  dropoff_lat: -3.3240, dropoff_lng: 114.5970,
+};
+const env = {
+  SUPABASE_URL: 'https://example.supabase.co',
+  SUPABASE_ANON_KEY: 'anon',
+  SUPABASE_SERVICE_ROLE_KEY: 'service',
+  ROUTING_PROVIDER: 'osrm',
+};
+const rule = {
+  id: 'r1', version: 1, service_type_id: SERVICE_ID,
+  base_fare_idr: 8000, included_distance_km: 1, fare_per_km_idr: 2500,
+  minimum_fare_idr: 8000, booking_fee_idr: 1000,
+};
+
+/** Supabase palsu: menyimpan order di memori dan menegakkan UNIQUE(customer_id, idempotency_key). */
+function makeFakeSupabase(userIdForToken: Record<string, string>, opts: { zones?: any[] } = {}) {
+  const orders: any[] = [];
+  const client = (_url: string, _key: string) => ({
+    auth: {
+      getUser: async (token: string) =>
+        userIdForToken[token]
+          ? { data: { user: { id: userIdForToken[token] } }, error: null }
+          : { data: { user: null }, error: { message: 'bad token' } },
+    },
+    from(table: string) {
+      const eqs: Record<string, unknown> = {};
+      let gte: [string, string] | null = null;
+      let inF: [string, unknown[]] | null = null;
+      let head = false;
+      let pendingInsert: any = null;
+      const matches = (o: any) =>
+        Object.entries(eqs).every(([k, v]) => o[k] === v) &&
+        (!gte || o[gte[0]] >= gte[1]) &&
+        (!inF || inF[1].includes(o[inF[0]]));
+      const q: any = {
+        select(_c?: string, o?: { head?: boolean }) { head = Boolean(o?.head); return q; },
+        eq(col: string, val: unknown) { eqs[col] = val; return q; },
+        gte(col: string, val: string) { gte = [col, val]; return q; },
+        in(col: string, vals: unknown[]) { inF = [col, vals]; return q; },
+        insert(rows: any[]) { pendingInsert = rows[0]; return q; },
+        then(resolve: (v: any) => void) {
+          if (table === 'service_zones') return resolve({ data: opts.zones ?? [], error: null });
+          const rows = orders.filter(matches);
+          return resolve(head ? { count: rows.length, data: null, error: null } : { data: rows, error: null });
+        },
+        async maybeSingle() {
+          if (table === 'tariff_rules') return { data: rule, error: null };
+          return { data: orders.find(matches) || null, error: null };
+        },
+        async single() {
+          const row = pendingInsert;
+          if (row.idempotency_key && orders.some(o => o.customer_id === row.customer_id && o.idempotency_key === row.idempotency_key)) {
+            return { data: null, error: { code: '23505', message: 'duplicate' } };
+          }
+          const saved = { id: `ord-${orders.length + 1}`, created_at: new Date().toISOString(), ...row };
+          orders.push(saved);
+          return { data: saved, error: null };
+        },
+      };
+      return q;
+    },
+  });
+  return { client: client as any, orders };
+}
+
+const fakeFetch = (async () => new Response(JSON.stringify({ routes: [{ distance: 5000 }] }), { status: 200 })) as typeof fetch;
+
+test('K3: Idempotency key tidak membocorkan order milik pelanggan lain', async () => {
+  const fake = makeFakeSupabase({ tokenA: 'user-a', tokenB: 'user-b' });
+  const deps = { createClient: fake.client, fetch: fakeFetch };
+
+  const a = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: 'same-key-123', body: validBody, env, deps });
+  assert.strictEqual(a.status, 201);
+
+  const aRetry = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: 'same-key-123', body: validBody, env, deps });
+  assert.strictEqual(aRetry.status, 200, 'Ulangan pelanggan yang sama mengembalikan order yang sama');
+  assert.strictEqual(aRetry.body.id, a.body.id);
+
+  const b = await handleCreateOrder({ authHeader: 'Bearer tokenB', idempotencyKey: 'same-key-123', body: validBody, env, deps });
+  assert.strictEqual(b.status, 201, 'Pelanggan lain dengan key sama mendapat order BARU');
+  assert.notStrictEqual(b.body.id, a.body.id);
+  assert.strictEqual(b.body.customer_id, 'user-b');
+  assert.strictEqual(fake.orders.length, 2);
+});
+
+test('K3: customer_id selalu dari token, bukan dari body', async () => {
+  const fake = makeFakeSupabase({ tokenA: 'user-a' });
+  const r = await handleCreateOrder({
+    authHeader: 'Bearer tokenA', idempotencyKey: null,
+    body: { ...validBody, customer_id: 'attacker' }, env,
+    deps: { createClient: fake.client, fetch: fakeFetch },
+  });
+  assert.strictEqual(r.status, 201);
+  assert.strictEqual(r.body.customer_id, 'user-a');
+});
+
+test('Order API: token tidak valid ditolak 401', async () => {
+  const fake = makeFakeSupabase({});
+  const r = await handleCreateOrder({ authHeader: 'Bearer nope', idempotencyKey: null, body: validBody, env, deps: { createClient: fake.client, fetch: fakeFetch } });
+  assert.strictEqual(r.status, 401);
+  const r2 = await handleCreateOrder({ authHeader: undefined, idempotencyKey: null, body: validBody, env });
+  assert.strictEqual(r2.status, 401);
+});
+
+test('Order API: validasi input', () => {
+  assert.strictEqual(validateOrderInput(validBody).ok, true);
+  assert.strictEqual(validateOrderInput({ ...validBody, service_type_id: 'ride_motor' }).ok, false);
+  assert.strictEqual(validateOrderInput({ ...validBody, pickup_address: 'x'.repeat(501) }).ok, false);
+  assert.strictEqual(validateOrderInput({ ...validBody, notes: 'x'.repeat(501) }).ok, false);
+  assert.strictEqual(validateOrderInput({ ...validBody, pickup_lat: 95 }).ok, false);
+  assert.strictEqual(validateOrderInput({ ...validBody, pickup_lat: '' }).ok, false);
+  assert.strictEqual(validateOrderInput({ ...validBody, pickup_lat: null }).ok, false);
+  assert.strictEqual(normalizeIdempotencyKey('short').ok, false);
+  assert.strictEqual(normalizeIdempotencyKey('valid-key-123').ok, true);
+  assert.deepStrictEqual(normalizeIdempotencyKey(undefined), { ok: true, key: null });
+});
+
+test('Order API: perhitungan tarif tidak berubah', () => {
+  assert.strictEqual(calculateFare(rule, 0.5).finalFare, 9000);
+  assert.strictEqual(calculateFare(rule, 5).finalFare, 19000);
+});
+
+test('S1: CORS hanya untuk origin terdaftar, tanpa wildcard', () => {
+  const allowed = parseAllowedOrigins('https://admin.kawai0511.id, https://app.kawai0511.id/');
+  assert.strictEqual(resolveCorsOrigin('https://app.kawai0511.id', allowed), 'https://app.kawai0511.id');
+  assert.strictEqual(resolveCorsOrigin('https://evil.example', allowed), null);
+  assert.strictEqual(buildCorsHeaders('https://evil.example', {})['Access-Control-Allow-Origin'], undefined);
+  assert.strictEqual(parseAllowedOrigins('*').includes('*'), true);
+  assert.strictEqual(resolveCorsOrigin('https://evil.example', parseAllowedOrigins('*')), null);
+});
+
+test('K1/K2/T3: migrasi perbaikan keamanan', () => {
+  const sql = fs.readFileSync(path.resolve('supabase/migrations/20261025000002_security_audit_fixes.sql'), 'utf8');
+  const isAdminFn = sql.slice(sql.indexOf('FUNCTION public.is_admin()'), sql.indexOf('REVOKE EXECUTE ON FUNCTION public.is_admin()'));
+  assert.match(isAdminFn, /is_active = true/);
+  assert.match(isAdminFn, /status = 'active'/);
+  assert.doesNotMatch(isAdminFn, /is_admin = true/, 'Flag is_admin tidak boleh dipercaya');
+  assert.match(sql, /ALTER VIEW public\.admin_users SET \(security_invoker = true\)/);
+  assert.match(sql, /ALTER VIEW public\.operational_zones SET \(security_invoker = true\)/);
+  assert.match(sql, /orders_customer_idempotency_key_uidx[\s\S]*\(customer_id, idempotency_key\)/);
+  assert.match(sql, /'is_admin'\)\s+IS DISTINCT FROM/);
+  for (const t of ['tariff_rules', 'service_types', 'order_status_history', 'payment_transactions', 'support_tickets']) {
+    assert.ok(sql.includes(`'${t}'`), `Policy admin untuk ${t} wajib ada`);
+  }
+  assert.match(sql, /FOR ALL TO authenticated USING \(public\.is_admin\(\)\) WITH CHECK \(public\.is_admin\(\)\)/);
+});
+
+test('T1: Tidak ada kredensial default di halaman login', () => {
+  const login = fs.readFileSync(path.resolve('src/features/auth/LoginPage.tsx'), 'utf8');
+  assert.doesNotMatch(login, /admin123/);
+  assert.doesNotMatch(login, /\|\| 'admin@kawai0511\.id'/);
+});
+
+test('T4: Jalur Supabase di api.ts tidak menggabungkan data mock', () => {
+  const api = fs.readFileSync(path.resolve('src/lib/api.ts'), 'utf8');
+  assert.doesNotMatch(api, /\.\.\.memoryOrders\[0\]/);
+  assert.doesNotMatch(api, /memoryUsers\.find\(u => u\.id === userId\) \|\| memoryUsers\[0\]\),/);
+});
+
+test('K4: Server produksi tidak memuat Vite dev server', () => {
+  const server = fs.readFileSync(path.resolve('server.ts'), 'utf8');
+  assert.doesNotMatch(server, /^import \{ createServer as createViteServer \} from 'vite'/m);
+  assert.match(server, /express\.static\(distDir/);
+  const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
+  assert.match(pkg.scripts.start, /NODE_ENV=production/);
+});
+
+// ------------------------------------------------------------------------------
+// Temuan Sedang & Rendah
+// ------------------------------------------------------------------------------
+const bjmPolygon = {
+  type: 'Polygon',
+  coordinates: [[[114.50, -3.40], [114.70, -3.40], [114.70, -3.25], [114.50, -3.25], [114.50, -3.40]]],
+};
+
+test('S2: batas order aktif & frekuensi per pelanggan (database)', async () => {
+  const fake = makeFakeSupabase({ tokenA: 'user-a' });
+  const deps = { createClient: fake.client, fetch: fakeFetch };
+  const call = () => handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: null, body: validBody, env, deps });
+  assert.strictEqual((await call()).status, 201);
+  assert.strictEqual((await call()).status, 201);
+  const third = await call();
+  assert.strictEqual(third.status, 409, 'Order aktif ke-3 ditolak');
+  assert.strictEqual(third.body.code, 'ACTIVE_ORDER_LIMIT');
+
+  // Order selesai tidak dihitung aktif, tapi tetap dihitung untuk batas 10 menit
+  fake.orders.forEach(o => { o.status = 'completed'; });
+  const envTight = { ...env, ORDER_RATE_LIMIT_PER_10_MIN: '2' };
+  const limited = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: null, body: validBody, env: envTight, deps });
+  assert.strictEqual(limited.status, 429);
+  assert.strictEqual(limited.body.code, 'RATE_LIMITED');
+});
+
+test('S2: retry idempotent tidak terkena batas order', async () => {
+  const fake = makeFakeSupabase({ tokenA: 'user-a' });
+  const deps = { createClient: fake.client, fetch: fakeFetch };
+  const envOne = { ...env, MAX_ACTIVE_ORDERS_PER_CUSTOMER: '1' };
+  const first = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: 'retry-key-1', body: validBody, env: envOne, deps });
+  const retry = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: 'retry-key-1', body: validBody, env: envOne, deps });
+  assert.strictEqual(first.status, 201);
+  assert.strictEqual(retry.status, 200);
+  assert.strictEqual(retry.body.id, first.body.id);
+});
+
+test('S2: rate limiter per IP dengan memori terbatas', () => {
+  const rl = createRateLimiter({ windowMs: 1000, max: 2, maxKeys: 3 });
+  assert.ok(rl.hit('ip1', 0).allowed);
+  assert.ok(rl.hit('ip1', 10).allowed);
+  const blocked = rl.hit('ip1', 20);
+  assert.strictEqual(blocked.allowed, false);
+  assert.ok(blocked.retryAfterSec >= 1);
+  assert.ok(rl.hit('ip1', 1500).allowed, 'Jendela waktu bergeser');
+  for (let i = 0; i < 100; i++) rl.hit(`flood-${i}`, 2000);
+  assert.ok(rl.hit('ip-new', 2000).allowed);
+});
+
+test('S6: zona layanan dari polygon service_zones', async () => {
+  const polys = extractPolygons(bjmPolygon);
+  assert.strictEqual(polys.length, 1);
+  assert.ok(isInsideAnyPolygon(-3.3194, 114.5908, polys), 'Siring Banjarmasin di dalam zona');
+  assert.ok(!isInsideAnyPolygon(-6.2, 106.8, polys), 'Jakarta di luar zona');
+  assert.deepStrictEqual(extractPolygons({ type: 'Polygon', coordinates: [] }), [], 'Polygon kosong (seed) diabaikan');
+
+  const deps = (zones: any[]) => ({ createClient: makeFakeSupabase({ tokenA: 'user-a' }, { zones }).client, fetch: fakeFetch });
+  const inside = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: null, body: validBody, env, deps: deps([{ boundary: bjmPolygon }]) });
+  assert.strictEqual(inside.status, 201);
+  const outside = await handleCreateOrder({
+    authHeader: 'Bearer tokenA', idempotencyKey: null,
+    body: { ...validBody, pickup_lat: -6.2, pickup_lng: 106.8 }, env, deps: deps([{ boundary: bjmPolygon }]),
+  });
+  assert.strictEqual(outside.status, 422);
+  assert.strictEqual(outside.body.code, 'OUTSIDE_SERVICE_AREA');
+  const emptyZones = [{ boundary: { type: 'Polygon', coordinates: [] } }];
+  const jakarta = { ...validBody, pickup_lat: -6.2, pickup_lng: 106.8 };
+  const defaultBox = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: null, body: jakarta, env, deps: deps(emptyZones) });
+  assert.strictEqual(defaultBox.body.code, 'OUTSIDE_SERVICE_AREA', 'Tanpa polygon: kotak Banjarmasin Raya bawaan berlaku');
+  const inBox = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: null, body: validBody, env, deps: deps(emptyZones) });
+  assert.strictEqual(inBox.status, 201, 'Banjarmasin di dalam kotak bawaan');
+  const off = await handleCreateOrder({ authHeader: 'Bearer tokenA', idempotencyKey: null, body: jakarta, env: { ...env, SERVICE_AREA_BBOX: 'none' }, deps: deps(emptyZones) });
+  assert.strictEqual(off.status, 201, 'SERVICE_AREA_BBOX=none mematikan pembatasan');
+});
+
+test('S6: cadangan SERVICE_AREA_BBOX & batas jarak perjalanan', async () => {
+  assert.deepStrictEqual(parseBbox('-3.5,114.45,-3.2,114.85'), [-3.5, 114.45, -3.2, 114.85]);
+  assert.strictEqual(parseBbox('salah'), null);
+  const deps = { createClient: makeFakeSupabase({ tokenA: 'user-a' }).client, fetch: fakeFetch };
+  const r = await handleCreateOrder({
+    authHeader: 'Bearer tokenA', idempotencyKey: null,
+    body: { ...validBody, pickup_lat: -6.2, pickup_lng: 106.8 },
+    env: { ...env, SERVICE_AREA_BBOX: '-3.5,114.45,-3.2,114.85' }, deps,
+  });
+  assert.strictEqual(r.body.code, 'OUTSIDE_SERVICE_AREA');
+  const longTrip = await handleCreateOrder({
+    authHeader: 'Bearer tokenA', idempotencyKey: null, body: validBody,
+    env: { ...env, MAX_TRIP_DISTANCE_KM: '3' }, deps, // fakeFetch = 5 km
+  });
+  assert.strictEqual(longTrip.body.code, 'TRIP_TOO_LONG');
+});
+
+test('R2: CSP ketat tanpa unsafe-eval / script dari mana saja', () => {
+  const csp = buildContentSecurityPolicy({ supabaseUrl: 'https://abc.supabase.co', apiUrl: 'https://api.kawai0511.id/v1' });
+  const script = csp.split('; ').find(d => d.startsWith('script-src'))!;
+  assert.strictEqual(script, "script-src 'self'");
+  assert.doesNotMatch(csp, /unsafe-eval/);
+  const connect = csp.split('; ').find(d => d.startsWith('connect-src'))!;
+  assert.match(connect, /https:\/\/abc\.supabase\.co/);
+  assert.match(connect, /wss:\/\/abc\.supabase\.co/);
+  assert.match(connect, /https:\/\/api\.kawai0511\.id(\s|$)/);
+  assert.doesNotMatch(connect, /(^|\s)https:(\s|$)/, 'connect-src tidak boleh https: bebas');
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /object-src 'none'/);
+  assert.match(renderCloudflareHeadersFile(), /Strict-Transport-Security/);
+});
+
+test('R1/R3: file patch & dependensi tidak terpakai sudah dihapus', () => {
+  assert.ok(!fs.existsSync(path.resolve('public/assets/aistudio')) || fs.readdirSync(path.resolve('public/assets/aistudio')).length === 0);
+  const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
+  assert.strictEqual(pkg.dependencies['@google/genai'], undefined);
+});
+
+test('Zona bawaan Banjarmasin Raya mencakup kota-kota utama', () => {
+  assert.strictEqual(DEFAULT_SERVICE_AREA_BBOX, '-3.50,114.45,-3.20,114.85');
+  const [minLat, minLng, maxLat, maxLng] = resolveServiceAreaBbox(undefined)!;
+  const inside = (lat: number, lng: number) => lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
+  assert.ok(inside(-3.3194, 114.5908), 'Banjarmasin');
+  assert.ok(inside(-3.4420, 114.8310), 'Banjarbaru');
+  assert.ok(inside(-3.4140, 114.8400), 'Martapura (sisi barat)');
+  assert.strictEqual(resolveServiceAreaBbox('none'), null);
+});
+
+test('Seed tarif default untuk semua layanan', () => {
+  const seed = fs.readFileSync(path.resolve('supabase/seed.sql'), 'utf8');
+  assert.match(seed, /INSERT INTO public\.tariff_rules/);
+  assert.match(seed, /'ride_motor', 'ride_car', 'delivery', 'food'/);
+  assert.match(seed, /NOT EXISTS[\s\S]*tr\.status = 'active'/, 'Seed tidak boleh membuat duplikat aturan aktif');
+});

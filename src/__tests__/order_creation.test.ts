@@ -119,84 +119,71 @@ test('KAWAI 0511 - Order Creation & Tariff Integration Tests', async (t) => {
     assert.ok(content.includes('ADD COLUMN IF NOT EXISTS calculation_details JSONB'), 'Must add calculation_details independently');
   });
 
-  await t.test('7. Server codebase verification - no hardcoded 3.4km placeholder as calculation default', () => {
-    const serverPath = path.resolve('./server.ts');
-    const serverCode = fs.readFileSync(serverPath, 'utf8');
+  // Logika order kini berada di shared/orderService.ts dan dipakai oleh server.ts serta functions/api/orders.ts
+  const readBackend = () => ({
+    server: fs.readFileSync(path.resolve('./server.ts'), 'utf8'),
+    service: fs.readFileSync(path.resolve('./shared/orderService.ts'), 'utf8'),
+  });
 
-    // Verify 3.4 placeholder is not used as active distance
-    assert.ok(!serverCode.includes('const distance = 3.4;'), 'Hardcoded 3.4km distance placeholder must be eliminated');
-    // Verify routing unconfigured check returns 503
-    assert.ok(serverCode.includes('ROUTING_NOT_CONFIGURED'), 'Server must return ROUTING_NOT_CONFIGURED if routing key is absent');
+  await t.test('7. Server codebase verification - no hardcoded 3.4km placeholder as calculation default', () => {
+    const { server, service } = readBackend();
+    assert.ok(!server.includes('const distance = 3.4;') && !service.includes('const distance = 3.4;'), 'Hardcoded 3.4km distance placeholder must be eliminated');
+    assert.ok(service.includes('ROUTING_NOT_CONFIGURED'), 'Server must return ROUTING_NOT_CONFIGURED if routing key is absent');
   });
 
   await t.test('8. Server route separation - API routes vs SPA fallback', () => {
-    const serverPath = path.resolve('./server.ts');
-    const serverCode = fs.readFileSync(serverPath, 'utf8');
-
-    assert.ok(serverCode.includes("app.post('/api/orders'"), 'POST /api/orders route must exist');
-    assert.ok(serverCode.includes("app.use('*'"), 'SPA wildcard fallback must exist');
-    // Ensure API routes are registered before the wildcard fallback
-    const apiIndex = serverCode.indexOf("app.post('/api/orders'");
-    const fallbackIndex = serverCode.indexOf("app.use('*'");
-    assert.ok(apiIndex < fallbackIndex, 'API routes must be declared before SPA wildcard fallback');
+    const { server } = readBackend();
+    assert.ok(server.includes("app.post('/api/orders'"), 'POST /api/orders route must exist');
+    const apiIndex = server.indexOf("app.post('/api/orders'");
+    const devFallback = server.indexOf("app.use('*'");
+    const prodFallback = server.indexOf("app.get('*'");
+    assert.ok(devFallback > -1 && prodFallback > -1, 'SPA fallback must exist for dev and production');
+    assert.ok(apiIndex < devFallback && apiIndex < prodFallback, 'API routes must be declared before SPA wildcard fallback');
   });
 
-  await t.test('9. Supabase client separation (Auth anon client vs Privileged admin client)', () => {
-    const serverPath = path.resolve('./server.ts');
-    const serverCode = fs.readFileSync(serverPath, 'utf8');
-
-    assert.ok(serverCode.includes('authClient'), 'Server must define separate authClient for user token verification');
-    assert.ok(serverCode.includes('adminClient'), 'Server must define separate adminClient for privileged operations');
-    assert.ok(serverCode.includes('SUPABASE_ANON_KEY') || serverCode.includes('SUPABASE_PUBLISHABLE_KEY'), 'Server must support anon/publishable key for authClient');
-    assert.ok(serverCode.includes('SUPABASE_SERVICE_ROLE_KEY'), 'Server must use service role key for privileged adminClient');
+  await t.test('9. Supabase client separation (token verifier vs privileged db client)', () => {
+    const { service } = readBackend();
+    assert.ok(service.includes('const verifier = makeClient('), 'Must use a dedicated client for user token verification');
+    assert.ok(service.includes('SUPABASE_ANON_KEY') || service.includes('SUPABASE_PUBLISHABLE_KEY'), 'Must support anon/publishable key');
+    assert.ok(service.includes('SUPABASE_SERVICE_ROLE_KEY'), 'Must use service role key for privileged db client');
   });
 
   await t.test('10. Verified user customer_id isolation (rejecting untrusted client body customer_id)', () => {
-    const serverPath = path.resolve('./server.ts');
-    const serverCode = fs.readFileSync(serverPath, 'utf8');
-
-    assert.ok(serverCode.includes('customer_id = authData.user.id'), 'Customer ID must be derived exclusively from verified auth token');
-    assert.ok(!serverCode.includes('customer_id = req.body.customer_id'), 'Customer ID from client body must NEVER be trusted');
+    const { service } = readBackend();
+    assert.ok(service.includes('customer_id = data.user.id'), 'Customer ID must be derived exclusively from verified auth token');
+    assert.ok(!service.includes('body.customer_id') && !service.includes('b.customer_id'), 'Customer ID from client body must NEVER be trusted');
   });
 
   await t.test('11. HTTP 401 on missing or empty Authorization header', () => {
-    const serverPath = path.resolve('./server.ts');
-    const serverCode = fs.readFileSync(serverPath, 'utf8');
-
-    assert.ok(serverCode.includes("res.status(401)"), 'Must return 401 for unauthorized calls');
-    assert.ok(serverCode.includes('Header Authorization Bearer token wajib disertakan'), 'Must explain Bearer token requirement');
+    const { service } = readBackend();
+    assert.ok(service.includes("fail(401, 'UNAUTHORIZED'"), 'Must return 401 for unauthorized calls');
+    assert.ok(service.includes('Header Authorization Bearer token wajib disertakan'), 'Must explain Bearer token requirement');
   });
 
-  await t.test('12. Idempotency store support for order creation', () => {
-    const serverPath = path.resolve('./server.ts');
-    const serverCode = fs.readFileSync(serverPath, 'utf8');
-
-    assert.ok(serverCode.includes('idempotencyKey'), 'Must handle Idempotency-Key / x-idempotency-key headers');
-    assert.ok(serverCode.includes('idempotencyStore'), 'Must maintain idempotency store to prevent duplicate orders');
+  await t.test('12. Database-backed idempotency scoped per customer', () => {
+    const { service } = readBackend();
+    assert.ok(service.includes("idempotency_key: idem.key"), 'Order must persist idempotency_key');
+    assert.ok(service.includes(".eq('customer_id', customer_id)") && service.includes(".eq('idempotency_key', idem.key)"), 'Lookup must be scoped to customer');
+    assert.ok(service.includes("'23505'"), 'Must handle unique violation race');
+    assert.ok(!service.includes('idempotencyStore') && !readBackend().server.includes('idempotencyStore'), 'In-memory idempotency store must be removed');
   });
 
   await t.test('13. Startup consistency - backend build generates server.js for npm start', () => {
-    const pkgPath = path.resolve('./package.json');
-    const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-
+    const pkgJson = JSON.parse(fs.readFileSync(path.resolve('./package.json'), 'utf8'));
     assert.ok(pkgJson.scripts.build.includes('server.js'), 'build script must generate server.js for npm start');
-    assert.strictEqual(pkgJson.scripts.start, 'node server.js', 'start script must invoke node server.js');
+    assert.strictEqual(pkgJson.scripts.start, 'NODE_ENV=production node server.js', 'start script must run server.js in production mode');
   });
 
   await t.test('14. Routing error and timeout handling', () => {
-    const serverPath = path.resolve('./server.ts');
-    const serverCode = fs.readFileSync(serverPath, 'utf8');
-
-    assert.ok(serverCode.includes('ROUTING_FAILED'), 'Must handle routing network failure or timeout with ROUTING_FAILED');
-    assert.ok(serverCode.includes('NO_ROUTE_FOUND'), 'Must handle unroutable points with NO_ROUTE_FOUND');
-    assert.ok(serverCode.includes('AbortSignal.timeout'), 'Must enforce timeout on external routing HTTP calls');
+    const { service } = readBackend();
+    assert.ok(service.includes('ROUTING_FAILED'), 'Must handle routing network failure or timeout with ROUTING_FAILED');
+    assert.ok(service.includes('NO_ROUTE_FOUND'), 'Must handle unroutable points with NO_ROUTE_FOUND');
+    assert.ok(service.includes('AbortSignal.timeout'), 'Must enforce timeout on external routing HTTP calls');
   });
 
   await t.test('15. Supabase configuration safety - safe rejection when unconfigured', () => {
-    const serverPath = path.resolve('./server.ts');
-    const serverCode = fs.readFileSync(serverPath, 'utf8');
-
-    assert.ok(serverCode.includes('SUPABASE_NOT_CONFIGURED'), 'Must fail safely with SUPABASE_NOT_CONFIGURED when keys/URL are missing');
+    const { service } = readBackend();
+    assert.ok(service.includes('SUPABASE_NOT_CONFIGURED'), 'Must fail safely with SUPABASE_NOT_CONFIGURED when keys/URL are missing');
   });
 
   await t.test('16. Canonical forward migration verification (20261025000001)', () => {
@@ -219,12 +206,13 @@ test('KAWAI 0511 - Order Creation & Tariff Integration Tests', async (t) => {
   });
 
   await t.test('17. Health probe and CORS support in server.ts', () => {
-    const serverPath = path.resolve('./server.ts');
-    const serverCode = fs.readFileSync(serverPath, 'utf8');
+    const serverCode = fs.readFileSync(path.resolve('./server.ts'), 'utf8');
+    const service = fs.readFileSync(path.resolve('./shared/orderService.ts'), 'utf8');
 
     assert.ok(serverCode.includes("app.get('/health'"), 'Server must have /health endpoint');
     assert.ok(serverCode.includes("app.get('/api/health'"), 'Server must have /api/health endpoint');
-    assert.ok(serverCode.includes('Access-Control-Allow-Origin'), 'Server must configure CORS headers for multi-origin hosting');
+    assert.ok(serverCode.includes('buildCorsHeaders('), 'Server must apply allow-listed CORS headers');
+    assert.ok(service.includes('Access-Control-Allow-Origin'), 'CORS helper must set Access-Control-Allow-Origin for allowed origins');
   });
 
   await t.test('18. Cloudflare Pages Functions edge API availability', () => {
@@ -237,8 +225,10 @@ test('KAWAI 0511 - Order Creation & Tariff Integration Tests', async (t) => {
     const ordersFn = fs.readFileSync(ordersFnPath, 'utf8');
     assert.ok(ordersFn.includes('onRequestPost'), 'Must export onRequestPost handler');
     assert.ok(ordersFn.includes('onRequestOptions'), 'Must export onRequestOptions handler');
-    assert.ok(ordersFn.includes('tariff_version'), 'Must snapshot tariff_version');
-    assert.ok(ordersFn.includes('calculation_details'), 'Must snapshot calculation_details');
+    assert.ok(ordersFn.includes("from '../../shared/orderService'"), 'Edge function must reuse the shared order service');
+    const service = fs.readFileSync(path.resolve('./shared/orderService.ts'), 'utf8');
+    assert.ok(service.includes('tariff_version'), 'Must snapshot tariff_version');
+    assert.ok(service.includes('calculation_details'), 'Must snapshot calculation_details');
   });
 
   await t.test('19. Client API VITE_API_URL decouple support', () => {

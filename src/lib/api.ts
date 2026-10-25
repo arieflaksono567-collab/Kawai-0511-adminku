@@ -37,6 +37,17 @@ export interface ApiResponse<T> {
   error: string | null;
 }
 
+/**
+ * Respons gagal untuk operasi tulis ke Supabase. `data` sengaja null: pemanggil
+ * WAJIB memeriksa `error` lebih dulu dan tidak boleh memakai data contoh (mock).
+ */
+function writeFailure<T>(message: string): ApiResponse<T> {
+  return { data: null as unknown as T, isSimulation: false, error: message };
+}
+
+const NO_ROWS_UPDATED =
+  'Tidak ada data yang berubah: data tidak ditemukan atau akun Anda tidak memiliki izin (RLS).';
+
 // Initial Mock Users (Pelanggan KAWAI 0511 - Standby / Dev only)
 export const INITIAL_MOCK_USERS: UserProfile[] = [
   {
@@ -174,11 +185,10 @@ export const api = {
         .maybeSingle();
 
       if (error) {
-        return { 
-          data: memoryUsers.find(u => u.id === userId) || memoryUsers[0], 
-          isSimulation: false, 
-          error: `Gagal memperbarui status user_profiles: ${error.message}` 
-        };
+        return writeFailure(`Gagal memperbarui status user_profiles: ${error.message}`);
+      }
+      if (!data) {
+        return writeFailure(NO_ROWS_UPDATED);
       }
 
       await this.logAudit(
@@ -188,16 +198,14 @@ export const api = {
         { status: newStatus, is_active: isActive }
       );
 
-      const raw = data || {};
-      const updatedUser: UserProfile = {
-        ...(memoryUsers.find(u => u.id === userId) || memoryUsers[0]),
-        id: raw.id || userId,
-        display_name: raw.display_name || 'Pengguna KAWAI',
-        full_name: raw.display_name || 'Pengguna KAWAI',
+      // Hanya field dari database; pemanggil menggabungkan dengan data yang sudah tampil.
+      const updatedUser = {
+        id: data.id || userId,
+        ...(data.display_name ? { display_name: data.display_name, full_name: data.display_name } : {}),
         status: newStatus,
         is_active: isActive,
-        updated_at: raw.updated_at,
-      };
+        updated_at: data.updated_at,
+      } as UserProfile;
 
       return { data: updatedUser, isSimulation: false, error: null };
     }
@@ -327,37 +335,25 @@ export const api = {
         .maybeSingle();
 
       if (error) {
-        return { 
-          data: memoryDrivers.find(d => d.user_id === driverUserId || d.id === driverUserId) || memoryDrivers[0], 
-          isSimulation: false, 
-          error: `Gagal memperbarui verification_status driver: ${error.message}` 
-        };
+        return writeFailure(`Gagal memperbarui verification_status driver: ${error.message}`);
+      }
+      if (!data) {
+        return writeFailure(NO_ROWS_UPDATED);
       }
 
-      const raw = data || {};
-      const updatedDriver: DriverProfile = {
-        id: raw.user_id || driverUserId,
-        user_id: raw.user_id || driverUserId,
-        display_name: 'Mitra Driver',
-        full_name: 'Mitra Driver',
-        phone: '-',
-        email: null,
-        vehicle_type: normalizeVehicleType(raw.vehicle_type),
-        vehicle_brand: raw.vehicle_brand || null,
-        vehicle_model: raw.vehicle_model || null,
-        vehicle_year: 2023,
-        vehicle_plate: raw.vehicle_plate || 'DA ----',
-        plate_number: raw.vehicle_plate || 'DA ----',
+      // Hanya field dari database; tidak ada nilai pengganti palsu (nama, rating, dsb).
+      const updatedDriver = {
+        id: data.user_id || driverUserId,
+        user_id: data.user_id || driverUserId,
+        vehicle_type: normalizeVehicleType(data.vehicle_type),
+        vehicle_brand: data.vehicle_brand ?? null,
+        vehicle_model: data.vehicle_model ?? null,
+        ...(data.vehicle_plate ? { vehicle_plate: data.vehicle_plate, plate_number: data.vehicle_plate } : {}),
         status,
         verification_status: vStatus,
-        rating: 5.0,
-        total_trips: 0,
-        wallet_balance: 0,
-        is_online: Boolean(raw.is_online),
-        documents: { ktp: 'pending', sim: 'pending', stnk: 'pending', skck: 'pending' },
-        created_at: raw.created_at || new Date().toISOString(),
-        updated_at: raw.updated_at,
-      };
+        is_online: Boolean(data.is_online),
+        updated_at: data.updated_at,
+      } as DriverProfile;
 
       return { data: updatedDriver, isSimulation: false, error: null };
     }
@@ -401,7 +397,7 @@ export const api = {
     if (isSupabaseConfigured && supabase) {
       if (!driverData.user_id) {
         return {
-          data: newRecord,
+          data: null as unknown as DriverProfile,
           isSimulation: false,
           error: 'Pendaftaran driver memerlukan user_id yang sah (relasi auth.users -> user_profiles). Akun pengguna harus dibuat melalui alur autentikasi resmi terlebih dahulu.'
         };
@@ -425,7 +421,10 @@ export const api = {
         .maybeSingle();
 
       if (error) {
-        return { data: newRecord, isSimulation: false, error: `Gagal menambah driver_profiles: ${error.message}` };
+        return writeFailure(`Gagal menambah driver_profiles: ${error.message}`);
+      }
+      if (!data) {
+        return writeFailure(NO_ROWS_UPDATED);
       }
 
       return { data: { ...newRecord, ...(data || {}) }, isSimulation: false, error: null };
@@ -581,16 +580,15 @@ export const api = {
         .maybeSingle();
 
       if (error) {
-        return { 
-          data: memoryOrders.find(o => o.id === orderId) || memoryOrders[0], 
-          isSimulation: false, 
-          error: `Gagal menugaskan driver pada tabel orders: ${error.message}` 
-        };
+        return writeFailure(`Gagal menugaskan driver pada tabel orders: ${error.message}`);
+      }
+      if (!data) {
+        return writeFailure(NO_ROWS_UPDATED);
       }
 
       // 2. Record status change in public.order_status_history
       try {
-        await supabase
+        const { error: historyError } = await supabase
           .from('order_status_history')
           .insert([{
             order_id: orderId,
@@ -599,19 +597,18 @@ export const api = {
             new_status: 'assigned',
             notes: `Penugasan driver oleh administrator operasional: ${driverUserId}`,
           }]);
-      } catch {
-        // Non-blocking history log
+        if (historyError) console.error('Gagal mencatat order_status_history:', historyError.message);
+      } catch (historyErr) {
+        // Tidak memblokir, tapi dicatat agar kegagalan terlihat
+        console.error('Gagal mencatat order_status_history:', historyErr);
       }
 
-      const raw = data || {};
-      const updatedOrder: Order = {
-        ...memoryOrders[0],
-        ...raw,
+      const updatedOrder = {
+        ...data,
         id: orderId,
         driver_id: driverUserId,
         status: 'assigned',
-        accepted_at: new Date().toISOString(),
-      };
+      } as Order;
 
       return { data: updatedOrder, isSimulation: false, error: null };
     }
@@ -658,16 +655,15 @@ export const api = {
         .maybeSingle();
 
       if (error) {
-        return { 
-          data: memoryOrders.find(o => o.id === orderId) || memoryOrders[0], 
-          isSimulation: false, 
-          error: `Gagal memperbarui status order: ${error.message}` 
-        };
+        return writeFailure(`Gagal memperbarui status order: ${error.message}`);
+      }
+      if (!data) {
+        return writeFailure(NO_ROWS_UPDATED);
       }
 
       // Record in public.order_status_history with cancellation reason in notes
       try {
-        await supabase
+        const { error: historyError } = await supabase
           .from('order_status_history')
           .insert([{
             order_id: orderId,
@@ -676,18 +672,17 @@ export const api = {
             new_status: dbStatus,
             notes: reason ? `Catatan pembatalan/perubahan: ${reason}` : `Perubahan status order ke ${dbStatus}`,
           }]);
-      } catch {
-        // Non-blocking history log
+        if (historyError) console.error('Gagal mencatat order_status_history:', historyError.message);
+      } catch (historyErr) {
+        console.error('Gagal mencatat order_status_history:', historyErr);
       }
 
-      const raw = data || {};
-      const updatedOrder: Order = {
-        ...memoryOrders[0],
-        ...raw,
+      const updatedOrder = {
+        ...data,
         id: orderId,
         status,
         cancellation_reason: reason,
-      };
+      } as Order;
 
       return { data: updatedOrder, isSimulation: false, error: null };
     }
@@ -758,7 +753,10 @@ export const api = {
         .maybeSingle();
 
       if (error) {
-        return { data: updatedZone, isSimulation: false, error: `Gagal memperbarui service_zones: ${error.message}` };
+        return writeFailure(`Gagal memperbarui service_zones: ${error.message}`);
+      }
+      if (!data) {
+        return writeFailure(NO_ROWS_UPDATED);
       }
       return { data: updatedZone, isSimulation: false, error: null };
     }

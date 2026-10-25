@@ -27,10 +27,14 @@ export const LoginPage: React.FC = () => {
     setErrorMsg('');
     setIsSubmitting(true);
 
-    const targetEmail = email.trim() || 'admin@kawai0511.id';
-    const targetPassword = password.trim() || 'admin123';
+    const targetEmail = email.trim();
+    if (!targetEmail || !password) {
+      setErrorMsg('Email dan kata sandi wajib diisi.');
+      setIsSubmitting(false);
+      return;
+    }
 
-    const res = await loginWithPassword(targetEmail, targetPassword);
+    const res = await loginWithPassword(targetEmail, password);
     if (!res.success) {
       setErrorMsg(res.error || 'Autentikasi gagal.');
     }
@@ -107,7 +111,9 @@ export const LoginPage: React.FC = () => {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@kawai0511.id (Default: Superadmin)"
+                  placeholder="nama@kawai0511.id"
+                  autoComplete="username"
+                  required
                   className="w-full bg-slate-50 border border-slate-200 hover:border-slate-300 focus:bg-white focus:border-red-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-colors"
                 />
               </div>
@@ -123,7 +129,9 @@ export const LoginPage: React.FC = () => {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="•••••••••••• (Default: admin123)"
+                  placeholder="Kata sandi"
+                  autoComplete="current-password"
+                  required
                   className="w-full bg-slate-50 border border-slate-200 hover:border-slate-300 focus:bg-white focus:border-red-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-colors"
                 />
               </div>
