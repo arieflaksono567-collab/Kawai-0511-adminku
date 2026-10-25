@@ -6,6 +6,7 @@ import {
   INITIAL_MOCK_ZONES,
   INITIAL_MOCK_AUDIT
 } from './supabase';
+import { ASSIGNABLE_STATUSES, friendlyLifecycleError } from '../../shared/orderLifecycle';
 import { 
   UserProfile, 
   DriverProfile, 
@@ -566,7 +567,9 @@ export const api = {
 
   async assignDriver(orderId: string, driverUserId: string): Promise<ApiResponse<Order>> {
     if (isSupabaseConfigured && supabase) {
-      // 1. Update orders table (do NOT send driver_name)
+      // Hanya order yang masih mencari / sudah ditugaskan yang boleh (ganti) driver.
+      // Validasi driver, driver sibuk, timestamp, dan riwayat status ditangani
+      // trigger database (migrasi 20261026000002_order_lifecycle.sql).
       const { data, error } = await supabase
         .from('orders')
         .update({
@@ -576,31 +579,15 @@ export const api = {
           updated_at: new Date().toISOString(),
         })
         .eq('id', orderId)
+        .in('status', ASSIGNABLE_STATUSES as unknown as string[])
         .select()
         .maybeSingle();
 
       if (error) {
-        return writeFailure(`Gagal menugaskan driver pada tabel orders: ${error.message}`);
+        return writeFailure(`Gagal menugaskan driver: ${friendlyLifecycleError(error.message)}`);
       }
       if (!data) {
-        return writeFailure(NO_ROWS_UPDATED);
-      }
-
-      // 2. Record status change in public.order_status_history
-      try {
-        const { error: historyError } = await supabase
-          .from('order_status_history')
-          .insert([{
-            order_id: orderId,
-            old_status: 'searching',
-            previous_status: 'searching',
-            new_status: 'assigned',
-            notes: `Penugasan driver oleh administrator operasional: ${driverUserId}`,
-          }]);
-        if (historyError) console.error('Gagal mencatat order_status_history:', historyError.message);
-      } catch (historyErr) {
-        // Tidak memblokir, tapi dicatat agar kegagalan terlihat
-        console.error('Gagal mencatat order_status_history:', historyErr);
+        return writeFailure(`${NO_ROWS_UPDATED} Pastikan order masih berstatus mencari driver.`);
       }
 
       const updatedOrder = {
@@ -646,7 +633,8 @@ export const api = {
     if (dbStatus === 'arrived') updatePayload.arrived_at = nowIso;
 
     if (isSupabaseConfigured && supabase) {
-      // Update orders table (do NOT send cancellation_reason or driver_name)
+      // Riwayat status (dengan status lama yang benar) dicatat otomatis oleh
+      // trigger database; alasan pembatalan dicatat di audit log oleh App.
       const { data, error } = await supabase
         .from('orders')
         .update(updatePayload)
@@ -655,26 +643,10 @@ export const api = {
         .maybeSingle();
 
       if (error) {
-        return writeFailure(`Gagal memperbarui status order: ${error.message}`);
+        return writeFailure(`Gagal memperbarui status order: ${friendlyLifecycleError(error.message)}`);
       }
       if (!data) {
         return writeFailure(NO_ROWS_UPDATED);
-      }
-
-      // Record in public.order_status_history with cancellation reason in notes
-      try {
-        const { error: historyError } = await supabase
-          .from('order_status_history')
-          .insert([{
-            order_id: orderId,
-            old_status: dbStatus === 'cancelled' ? 'in_trip' : 'searching',
-            previous_status: dbStatus === 'cancelled' ? 'in_trip' : 'searching',
-            new_status: dbStatus,
-            notes: reason ? `Catatan pembatalan/perubahan: ${reason}` : `Perubahan status order ke ${dbStatus}`,
-          }]);
-        if (historyError) console.error('Gagal mencatat order_status_history:', historyError.message);
-      } catch (historyErr) {
-        console.error('Gagal mencatat order_status_history:', historyErr);
       }
 
       const updatedOrder = {
@@ -822,6 +794,28 @@ export const api = {
     return { data: [], isSimulation: true, error: null };
   },
 
+  /** Finance mengonfirmasi pembayaran tunai/manual sebagai lunas (hanya yang masih pending). */
+  async confirmPayment(paymentId: string): Promise<ApiResponse<DbPaymentTransaction>> {
+    if (isSupabaseConfigured && supabase) {
+      const nowIso = new Date().toISOString();
+      const { data, error } = await supabase
+        .from('payment_transactions')
+        .update({ status: 'success', paid_at: nowIso, updated_at: nowIso })
+        .eq('id', paymentId)
+        .eq('status', 'pending')
+        .select()
+        .maybeSingle();
+      if (error) {
+        return writeFailure(`Gagal mengonfirmasi pembayaran: ${error.message}`);
+      }
+      if (!data) {
+        return writeFailure(`${NO_ROWS_UPDATED} Pastikan pembayaran masih berstatus menunggu.`);
+      }
+      return { data, isSimulation: false, error: null };
+    }
+    return writeFailure('Konfirmasi pembayaran membutuhkan koneksi Supabase.');
+  },
+
   // ============================================================================
   // 8. SUPPORT TICKETS (Target: public.support_tickets)
   // Columns: id, customer_id, order_id, subject, category, description, status, priority, assigned_to
@@ -923,8 +917,9 @@ export const api = {
   ): Promise<void> {
     if (isSupabaseConfigured && supabase) {
       try {
+        // actor_id diisi database dari auth.uid() bila kosong (trigger audit_logs)
         const { data } = await supabase.auth.getSession();
-        await supabase
+        const { error } = await supabase
           .from('audit_logs')
           .insert([{
             actor_id: data?.session?.user?.id || null,
@@ -933,8 +928,10 @@ export const api = {
             entity_id: entityId || null,
             metadata: details,
           }]);
-      } catch {
-        // Non-blocking audit log
+        if (error) console.error('Gagal mencatat audit log:', error.message);
+      } catch (err) {
+        // Tidak memblokir aksi utama, tapi kegagalan tetap terlihat
+        console.error('Gagal mencatat audit log:', err);
       }
       return;
     }

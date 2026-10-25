@@ -15,6 +15,13 @@ import {
   Package
 } from 'lucide-react';
 import { Order, Driver, OrderStatus } from '../types/database';
+import {
+  ACTIVE_DRIVER_STATUSES,
+  canAssignDriver,
+  isDriverAssignable,
+  nextStatusActions,
+  normalizeOrderStatus,
+} from '../../shared/orderLifecycle';
 
 interface OrdersViewProps {
   orders: Order[];
@@ -36,7 +43,15 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [selectedOrderForAssign, setSelectedOrderForAssign] = useState<Order | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState<string>('');
 
-  const activeDrivers = drivers.filter(d => d.status === 'active');
+  // Driver yang boleh ditugaskan: terverifikasi dan tidak sedang menangani order aktif
+  const busyDriverIds = new Set(
+    orders
+      .filter(o => o.driver_id && ACTIVE_DRIVER_STATUSES.includes(normalizeOrderStatus(o.status) as any))
+      .map(o => o.driver_id as string)
+  );
+  const activeDrivers = drivers.filter(d =>
+    isDriverAssignable(d) && !busyDriverIds.has(d.user_id || d.id) && !busyDriverIds.has(d.id)
+  );
 
   const filteredOrders = orders.filter((order) => {
     const matchesSearch = 
@@ -45,7 +60,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       order.origin_address.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.destination_address.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+    const matchesStatus = statusFilter === 'all' || normalizeOrderStatus(order.status) === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -230,7 +245,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       </button>
                     )}
 
-                    {order.status === 'pending' && (
+                    {canAssignDriver(order.status) && (
                       <button
                         onClick={() => {
                           setSelectedOrderForAssign(order);
@@ -239,36 +254,31 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors flex items-center gap-1 shadow-sm shadow-red-500/20"
                       >
                         <UserCheck className="w-3.5 h-3.5" />
-                        Tugaskan Driver Manual
+                        {normalizeOrderStatus(order.status) === 'assigned' ? 'Ganti Driver' : 'Tugaskan Driver Manual'}
                       </button>
                     )}
 
-                    {order.status === 'assigned' && (
+                    {nextStatusActions(order.status).map((action) => (
                       <button
-                        onClick={() => onUpdateOrderStatus(order.id, 'in_progress')}
-                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                        key={action.to}
+                        onClick={() => onUpdateOrderStatus(
+                          order.id,
+                          action.to,
+                          action.to === 'cancelled' ? 'Dibatalkan oleh dispatcher admin' : undefined,
+                        )}
+                        className={
+                          action.tone === 'success'
+                            ? 'px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors'
+                            : action.tone === 'danger'
+                            ? 'px-3 py-1 bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-700 border border-slate-200 rounded-lg transition-colors'
+                            : action.tone === 'neutral'
+                            ? 'px-3 py-1 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 rounded-lg transition-colors'
+                            : 'px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors'
+                        }
                       >
-                        Set In-Progress
+                        {action.label}
                       </button>
-                    )}
-
-                    {order.status === 'in_progress' && (
-                      <button
-                        onClick={() => onUpdateOrderStatus(order.id, 'completed')}
-                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors"
-                      >
-                        Selesaikan Trip
-                      </button>
-                    )}
-
-                    {(order.status === 'pending' || order.status === 'assigned') && (
-                      <button
-                        onClick={() => onUpdateOrderStatus(order.id, 'cancelled', 'Dibatalkan oleh dispatcher admin')}
-                        className="px-3 py-1 bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-700 border border-slate-200 rounded-lg transition-colors"
-                      >
-                        Batalkan Trip
-                      </button>
-                    )}
+                    ))}
                   </div>
                 </div>
               </div>
