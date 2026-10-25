@@ -13,6 +13,24 @@ interface AuthContextType {
   hasRole: (requiredRoles: AdminRole[]) => boolean;
 }
 
+// Peran staf yang boleh masuk panel. Harus sama dengan public.is_admin() di database.
+export const STAFF_ROLES: readonly AdminRole[] = ['superadmin', 'admin', 'dispatcher', 'finance', 'support'];
+// Peran dengan akses penuh ke seluruh modul panel.
+export const FULL_ACCESS_ROLES: readonly AdminRole[] = ['superadmin', 'admin'];
+
+export function isActiveStaffProfile(
+  profile: { role?: string | null; status?: string | null; is_active?: boolean | null } | null | undefined,
+  error?: unknown,
+): boolean {
+  return Boolean(
+    profile &&
+    !error &&
+    STAFF_ROLES.includes(profile.role as AdminRole) &&
+    profile.is_active !== false &&
+    (profile.status === undefined || profile.status === null || profile.status === 'active')
+  );
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -52,15 +70,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Schema has columns: id, display_name, phone, avatar_url, role, created_at, updated_at
             const { data: profileRecord, error: profileError } = await supabase
               .from('user_profiles')
-              .select('id, display_name, phone, avatar_url, role, created_at, updated_at')
+              .select('id, display_name, phone, avatar_url, role, status, is_active, created_at, updated_at')
               .eq('id', session.user.id)
               .maybeSingle();
 
-            const isAuthorizedAdmin = Boolean(
-              profileRecord && 
-              !profileError && 
-              (profileRecord.role === 'admin' || profileRecord.role === 'superadmin')
-            );
+            const isAuthorizedAdmin = isActiveStaffProfile(profileRecord, profileError);
 
             if (isAuthorizedAdmin && profileRecord) {
               const name = profileRecord.display_name || session.user.email?.split('@')[0] || 'Administrator';
@@ -69,7 +83,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 email: session.user.email || '',
                 display_name: name,
                 full_name: name,
-                role: 'admin',
+                role: profileRecord.role as AdminRole,
                 is_admin: true,
                 avatar_url: profileRecord.avatar_url,
                 created_at: profileRecord.created_at,
@@ -139,15 +153,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Schema columns: id, display_name, phone, avatar_url, role, created_at, updated_at
       const { data: profileRecord, error: roleError } = await supabase
         .from('user_profiles')
-        .select('id, display_name, phone, avatar_url, role, created_at, updated_at')
+        .select('id, display_name, phone, avatar_url, role, status, is_active, created_at, updated_at')
         .eq('id', data.user.id)
         .maybeSingle();
 
-      const isAuthorizedAdmin = Boolean(
-        profileRecord && 
-        !roleError && 
-        (profileRecord.role === 'admin' || profileRecord.role === 'superadmin')
-      );
+      const isAuthorizedAdmin = isActiveStaffProfile(profileRecord, roleError);
 
       if (!isAuthorizedAdmin || !profileRecord) {
         await supabase.auth.signOut();
@@ -163,7 +173,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: data.user.email || '',
         display_name: name,
         full_name: name,
-        role: 'admin',
+        role: profileRecord.role as AdminRole,
         is_admin: true,
         avatar_url: profileRecord.avatar_url,
         created_at: profileRecord.created_at,
@@ -220,8 +230,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const hasRole = (requiredRoles: AdminRole[]): boolean => {
     if (!user) return false;
-    // In production database, role is 'admin', which has full administrative access
-    if (user.role === 'admin' || user.role === 'superadmin') return true;
+    if (!STAFF_ROLES.includes(user.role)) return false;
+    if (FULL_ACCESS_ROLES.includes(user.role)) return true;
     return requiredRoles.includes(user.role);
   };
 

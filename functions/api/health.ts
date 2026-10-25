@@ -1,6 +1,9 @@
 // Cloudflare Pages Function: GET /api/health
-export async function onRequestGet(context: { request: Request; env: Record<string, string> }): Promise<Response> {
-  const { env } = context;
+import { buildCorsHeaders, OrderEnv } from '../../shared/orderService';
+
+type Context = { request: Request; env: OrderEnv & Record<string, string | undefined> };
+
+export async function onRequestGet({ request, env }: Context): Promise<Response> {
   const supabaseUrl = env.SUPABASE_URL || env.VITE_SUPABASE_URL || '';
   const supabaseAnon = env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY || '';
   const supabaseService = env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -18,19 +21,12 @@ export async function onRequestGet(context: { request: Request; env: Record<stri
     status: 200,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
       'Cache-Control': 'no-cache',
+      ...buildCorsHeaders(request.headers.get('Origin'), env),
     },
   });
 }
 
-export async function onRequestOptions(): Promise<Response> {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, x-idempotency-key',
-    },
-  });
+export async function onRequestOptions({ request, env }: Context): Promise<Response> {
+  return new Response(null, { status: 204, headers: buildCorsHeaders(request.headers.get('Origin'), env) });
 }

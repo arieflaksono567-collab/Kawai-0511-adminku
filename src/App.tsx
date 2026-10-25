@@ -79,7 +79,7 @@ function AppContent() {
 
   // Audit recording helper
   const recordAudit = async (action: string, entity_type: string, entity_id: string, details: Record<string, any>) => {
-    const adminEmail = user?.email || 'admin@kawai0511.id';
+    const adminEmail = user?.email || 'unknown';
     await api.logAudit(action, entity_type, entity_id, details, adminEmail);
     const refreshed = await api.getAuditLogs();
     setAuditLogs(refreshed.data);
@@ -88,9 +88,11 @@ function AppContent() {
   // User actions
   const handleUpdateUserStatus = async (userId: string, newStatus: 'active' | 'suspended', reason: string) => {
     const res = await api.updateUserStatus(userId, newStatus);
-    setUsers(prev => prev.map(u => u.id === userId ? res.data : u));
+    if (res.error) { setApiError(res.error); return; }
+    const existing = users.find(u => u.id === userId);
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, ...res.data } : u));
     recordAudit(`UPDATE_USER_STATUS_${newStatus.toUpperCase()}`, 'user', userId, {
-      user_name: res.data.full_name,
+      user_name: res.data.full_name || existing?.full_name,
       reason,
     });
   };
@@ -98,26 +100,31 @@ function AppContent() {
   // Driver actions
   const handleUpdateDriverStatus = async (id: string, newStatus: DriverStatus, logAction: string) => {
     const res = await api.updateDriverStatus(id, newStatus);
-    setDrivers(prev => prev.map(d => d.id === id ? res.data : d));
+    if (res.error) { setApiError(res.error); return; }
+    const existing = drivers.find(d => d.id === id);
+    setDrivers(prev => prev.map(d => d.id === id ? { ...d, ...res.data } : d));
     recordAudit(
       newStatus === 'suspended' ? 'SUSPEND_DRIVER' : 'ACTIVATE_DRIVER',
       'driver',
       id,
-      { driver_name: res.data.full_name, note: logAction }
+      { driver_name: existing?.full_name, note: logAction }
     );
   };
 
   const handleApproveDocuments = async (id: string) => {
     const res = await api.approveDriverDocuments(id);
-    setDrivers(prev => prev.map(d => d.id === id ? res.data : d));
+    if (res.error) { setApiError(res.error); return; }
+    const existing = drivers.find(d => d.id === id);
+    setDrivers(prev => prev.map(d => d.id === id ? { ...d, ...res.data } : d));
     recordAudit('APPROVE_DRIVER_DOCUMENTS', 'driver', id, {
-      driver_name: res.data.full_name,
+      driver_name: existing?.full_name,
       status_set: 'active',
     });
   };
 
   const handleAddDriver = async (newDriverData: Partial<Driver>) => {
     const res = await api.createDriver(newDriverData);
+    if (res.error) { setApiError(res.error); return; }
     setDrivers(prev => [res.data, ...prev]);
     recordAudit('REGISTER_NEW_DRIVER', 'driver', res.data.id, {
       full_name: res.data.full_name,
@@ -128,16 +135,19 @@ function AppContent() {
   // Order actions
   const handleAssignDriver = async (orderId: string, driverId: string) => {
     const res = await api.assignDriver(orderId, driverId);
-    setOrders(prev => prev.map(o => o.id === orderId ? res.data : o));
+    if (res.error) { setApiError(res.error); return; }
+    const driverName = drivers.find(d => d.id === driverId || d.user_id === driverId)?.full_name;
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...res.data, driver_name: driverName ?? o.driver_name } : o));
     recordAudit('MANUAL_ASSIGN_DRIVER', 'order', orderId, {
       driver_id: driverId,
-      driver_name: res.data.driver_name,
+      driver_name: driverName,
     });
   };
 
   const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus, reason?: string) => {
     const res = await api.updateOrderStatus(orderId, status, reason);
-    setOrders(prev => prev.map(o => o.id === orderId ? res.data : o));
+    if (res.error) { setApiError(res.error); return; }
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...res.data } : o));
     recordAudit(`SET_ORDER_STATUS_${status.toUpperCase()}`, 'order', orderId, {
       status,
       reason: reason || 'Diperbarui via pusat komando admin',
@@ -147,7 +157,8 @@ function AppContent() {
   // Zone actions
   const handleUpdateZone = async (updatedZone: OperationalZone) => {
     const res = await api.updateZone(updatedZone);
-    setZones(prev => prev.map(z => z.id === updatedZone.id ? res.data : z));
+    if (res.error) { setApiError(res.error); return; }
+    setZones(prev => prev.map(z => z.id === updatedZone.id ? { ...z, ...res.data } : z));
     recordAudit('UPDATE_OPERATIONAL_ZONE_TARIFF', 'operational_zone', updatedZone.id, {
       zone_name: updatedZone.name,
       base_fare_motor: updatedZone.base_fare_motor,
