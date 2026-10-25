@@ -15,6 +15,7 @@ import {
 import { AdminPageView } from '../types/database';
 import { KawaiLogo } from './KawaiLogo';
 import { KawaiMascot } from './KawaiMascot';
+import { useAuth } from '../features/auth/AuthContext';
 
 interface SidebarProps {
   currentTab: AdminPageView;
@@ -31,7 +32,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenOnMobile = false,
   onCloseMobile
 }) => {
-  const menuItems = [
+  const { canAccess } = useAuth();
+  const allMenuItems = [
     {
       id: 'dashboard' as AdminPageView,
       label: 'Ringkasan',
@@ -94,6 +96,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: null,
     },
   ];
+
+  // Menu hanya menampilkan halaman yang boleh dibuka peran ini (shared/rbac.ts)
+  const menuItems = allMenuItems.filter(item => canAccess(item.id));
 
   const handleTabClick = (id: AdminPageView) => {
     onSelectTab(id);

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { rolesForTab, StaffAction } from '../shared/rbac';
 import { AuthProvider, useAuth } from './features/auth/AuthContext';
 import { LoginPage } from './features/auth/LoginPage';
 import { Header } from './components/Header';
@@ -35,7 +36,7 @@ import {
 } from './types/database';
 
 function AppContent() {
-  const { user, isLoading, isDemoSession, hasRole } = useAuth();
+  const { user, isLoading, isDemoSession, canAccess, can } = useAuth();
   const [currentTab, setCurrentTab] = useState<AdminPageView>('dashboard');
   const [isDbModalOpen, setIsDbModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -48,6 +49,14 @@ function AppContent() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<Order | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
+
+  // Tolak aksi yang tidak diizinkan untuk peran ini (lapis UI; database tetap
+  // menegakkan aturan yang sama lewat RLS).
+  const denyUnless = (action: StaffAction): boolean => {
+    if (can(action)) return false;
+    setApiError(`Peran Anda (${user?.role ?? '-'}) tidak memiliki izin untuk aksi ini.`);
+    return true;
+  };
 
   // Initial data fetch with explicit error handling
   useEffect(() => {
@@ -87,6 +96,7 @@ function AppContent() {
 
   // User actions
   const handleUpdateUserStatus = async (userId: string, newStatus: 'active' | 'suspended', reason: string) => {
+    if (denyUnless('user.update_status')) return;
     const res = await api.updateUserStatus(userId, newStatus);
     if (res.error) { setApiError(res.error); return; }
     const existing = users.find(u => u.id === userId);
@@ -99,6 +109,7 @@ function AppContent() {
 
   // Driver actions
   const handleUpdateDriverStatus = async (id: string, newStatus: DriverStatus, logAction: string) => {
+    if (denyUnless('driver.update_status')) return;
     const res = await api.updateDriverStatus(id, newStatus);
     if (res.error) { setApiError(res.error); return; }
     const existing = drivers.find(d => d.id === id);
@@ -112,6 +123,7 @@ function AppContent() {
   };
 
   const handleApproveDocuments = async (id: string) => {
+    if (denyUnless('driver.approve_documents')) return;
     const res = await api.approveDriverDocuments(id);
     if (res.error) { setApiError(res.error); return; }
     const existing = drivers.find(d => d.id === id);
@@ -123,6 +135,7 @@ function AppContent() {
   };
 
   const handleAddDriver = async (newDriverData: Partial<Driver>) => {
+    if (denyUnless('driver.create')) return;
     const res = await api.createDriver(newDriverData);
     if (res.error) { setApiError(res.error); return; }
     setDrivers(prev => [res.data, ...prev]);
@@ -134,6 +147,7 @@ function AppContent() {
 
   // Order actions
   const handleAssignDriver = async (orderId: string, driverId: string) => {
+    if (denyUnless('order.assign_driver')) return;
     const res = await api.assignDriver(orderId, driverId);
     if (res.error) { setApiError(res.error); return; }
     const driverName = drivers.find(d => d.id === driverId || d.user_id === driverId)?.full_name;
@@ -145,6 +159,7 @@ function AppContent() {
   };
 
   const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus, reason?: string) => {
+    if (denyUnless('order.update_status')) return;
     const res = await api.updateOrderStatus(orderId, status, reason);
     if (res.error) { setApiError(res.error); return; }
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...res.data } : o));
@@ -156,6 +171,7 @@ function AppContent() {
 
   // Zone actions
   const handleUpdateZone = async (updatedZone: OperationalZone) => {
+    if (denyUnless('zone.update')) return;
     const res = await api.updateZone(updatedZone);
     if (res.error) { setApiError(res.error); return; }
     setZones(prev => prev.map(z => z.id === updatedZone.id ? { ...z, ...res.data } : z));
@@ -165,6 +181,8 @@ function AppContent() {
       surge: updatedZone.surge_multiplier,
     });
   };
+
+  const tabAllowed = canAccess(currentTab);
 
   // Loading Screen
   if (isLoading) {
@@ -246,8 +264,17 @@ function AppContent() {
 
         {/* Dynamic Workspace */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 space-y-6">
+          {/* Halaman yang tidak boleh dibuka peran ini (peta: shared/rbac.ts) */}
+          {!tabAllowed && (
+            <Forbidden403 
+              onBackToDashboard={() => setCurrentTab('dashboard')}
+              requiredRole={rolesForTab(currentTab).join(', ')}
+              userRole={user.role}
+            />
+          )}
+
           {/* 1. Ringkasan (Dashboard) */}
-          {currentTab === 'dashboard' && (
+          {tabAllowed && currentTab === 'dashboard' && (
             <DashboardView 
               drivers={drivers}
               orders={orders}
@@ -259,7 +286,7 @@ function AppContent() {
           )}
 
           {/* 2. Pesanan (Orders & Live Dispatch) */}
-          {currentTab === 'orders' && (
+          {tabAllowed && currentTab === 'orders' && (
             <OrdersView 
               orders={orders}
               drivers={drivers}
@@ -270,7 +297,7 @@ function AppContent() {
           )}
 
           {/* 3. Pengguna (Users Management) */}
-          {currentTab === 'users' && (
+          {tabAllowed && currentTab === 'users' && (
             <UsersPage 
               users={users}
               isSimulation={!isSupabaseConfigured}
@@ -279,7 +306,7 @@ function AppContent() {
           )}
 
           {/* 4. Mitra Driver (Drivers Management) */}
-          {currentTab === 'drivers' && (
+          {tabAllowed && currentTab === 'drivers' && (
             <DriversView 
               drivers={drivers}
               onUpdateDriverStatus={handleUpdateDriverStatus}
@@ -289,52 +316,44 @@ function AppContent() {
           )}
 
           {/* 5. Tarif & Zona (Operational Zones & Tariffs) */}
-          {currentTab === 'zones' && (
-            hasRole(['superadmin', 'dispatcher', 'finance']) ? (
-              <ZonesView 
-                zones={zones}
-                onUpdateZone={handleUpdateZone}
-              />
-            ) : (
-              <Forbidden403 
-                onBackToDashboard={() => setCurrentTab('dashboard')}
-                requiredRole="superadmin, dispatcher, atau finance"
-                userRole={user.role}
-              />
-            )
+          {tabAllowed && currentTab === 'zones' && (
+            <ZonesView 
+              zones={zones}
+              onUpdateZone={handleUpdateZone}
+            />
           )}
 
           {/* 6. Pembayaran (Payments & Transactions) */}
-          {currentTab === 'payments' && (
+          {tabAllowed && currentTab === 'payments' && (
             <PaymentsPage />
           )}
 
           {/* 7. Layanan (Service Catalog) */}
-          {currentTab === 'services' && (
+          {tabAllowed && currentTab === 'services' && (
             <ServicesPage />
           )}
 
           {/* 8. Dukungan (Support Tickets & Helpdesk) */}
-          {currentTab === 'support' && (
+          {tabAllowed && currentTab === 'support' && (
             <SupportPage />
           )}
 
           {/* 9. Analitik Operasional */}
-          {currentTab === 'analytics' && (
+          {tabAllowed && currentTab === 'analytics' && (
             <AnalyticsPage 
               isSimulation={!isSupabaseConfigured}
             />
           )}
 
           {/* 10. Audit Log (Security & Audit Trail) */}
-          {currentTab === 'security' && (
+          {tabAllowed && currentTab === 'security' && (
             <SecurityAuditView 
               auditLogs={auditLogs}
             />
           )}
 
           {/* 11. Pengaturan Sistem */}
-          {currentTab === 'settings' && (
+          {tabAllowed && currentTab === 'settings' && (
             <SettingsPage 
               onOpenDbModal={() => setIsDbModalOpen(true)}
               onRecordAudit={recordAudit}
@@ -342,24 +361,24 @@ function AppContent() {
           )}
 
           {/* 12. Profil Administrator */}
-          {currentTab === 'profile' && (
+          {tabAllowed && currentTab === 'profile' && (
             <ProfilePage />
           )}
 
           {/* 13. Status Cloudflare & DB Deployment */}
-          {currentTab === 'deployment' && (
+          {tabAllowed && currentTab === 'deployment' && (
             <DeploymentStatusView />
           )}
 
           {/* 14. 403 & 404 Fallbacks */}
-          {currentTab === 'forbidden' && (
+          {tabAllowed && currentTab === 'forbidden' && (
             <Forbidden403 
               onBackToDashboard={() => setCurrentTab('dashboard')}
               userRole={user.role}
             />
           )}
 
-          {currentTab === 'not_found' && (
+          {tabAllowed && currentTab === 'not_found' && (
             <NotFound404 
               onBackToDashboard={() => setCurrentTab('dashboard')}
             />
